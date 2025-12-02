@@ -1,0 +1,24 @@
+{
+    "family": "plus-worker",
+    "networkMode": "awsvpc",
+    "requiresCompatibilities": ["FARGATE"],
+    "cpu": "256",
+    "memory": "512",
+    "executionRoleArn": "arn:aws:iam::085318171245:role/ecsTaskExecutionRole",
+    "containerDefinitions": [
+        {
+            "name": "worker",
+            "image": "085318171245.dkr.ecr.us-east-1.amazonaws.com/plus-worker:latest",
+            "essential": true,
+            "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                    "awslogs-group": "/ecs/plus-worker",
+                    "awslogs-region": "us-east-1",
+                    "awslogs-stream-prefix": "worker"
+                }
+            },
+            "environment": []
+        }
+    ]
+}
