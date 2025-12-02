@@ -136,7 +136,6 @@ def run_script_job():
     # Update job to RUNNING
     now = int(time.time())
     job.started_at = now
-    job.updated_at = now
     job.status = objs.PlusScriptStatus.RUNNING
 
     # Try to get Fargate task ARN
@@ -157,7 +156,6 @@ def run_script_job():
 
     # Update job to SUCCEEDED
     job.completed_at = int(time.time())
-    job.updated_at = int(time.time())
     job.status = objs.PlusScriptStatus.SUCCEEDED
     save_job(dao, job)
 
@@ -189,7 +187,6 @@ def run_collection_job():
     # Update job to RUNNING
     now = int(time.time())
     job.started_at = now
-    job.updated_at = now
     job.status = objs.PlusScriptStatus.RUNNING
 
     # Try to get Fargate task ARN
@@ -210,7 +207,6 @@ def run_collection_job():
 
     # Update job to SUCCEEDED
     job.completed_at = int(time.time())
-    job.updated_at = int(time.time())
     job.status = objs.PlusScriptStatus.SUCCEEDED
     save_job(dao, job)
 

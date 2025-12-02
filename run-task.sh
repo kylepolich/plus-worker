@@ -35,6 +35,7 @@ TASK_OUTPUT=$(aws ecs run-task \
         {"name": "ACTION_ID", "value": "test.action"},
         {"name": "JOB_ID", "value": "test-'$(date +%s)'"},
         {"name": "USERNAME", "value": "testuser"},
+        {"name": "REGION", "value": "'"$REGION"'"},
         {"name": "ACCESS_KEY", "value": "test-access-key"},
         {"name": "SECRET_KEY", "value": "test-secret-key"},
         {"name": "DYNAMO_TABLE", "value": "test-table"},

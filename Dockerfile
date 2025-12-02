@@ -22,6 +22,10 @@ RUN pip install --no-cache-dir .
 
 # Copy source code
 COPY src/ ./src/
+COPY feaas/ ./feaas/
+
+# Force unbuffered stdout/stderr for real-time logs
+ENV PYTHONUNBUFFERED=1
 
 # Entry point
-CMD ["python", "-m", "src.worker"]
+CMD ["python", "-u", "-m", "src.worker"]
