@@ -53,38 +53,27 @@ echo ""
 echo "Waiting for task to start..."
 sleep 5
 
-# Poll for status
-for i in {1..30}; do
-    STATUS=$(aws ecs describe-tasks --cluster "$CLUSTER_NAME" --tasks "$TASK_ID" --region "$REGION" \
-        --query 'tasks[0].lastStatus' --output text)
+# Wait for task to complete
+echo "Waiting for task to complete..."
+aws ecs wait tasks-stopped --cluster "$CLUSTER_NAME" --tasks "$TASK_ID" --region "$REGION"
 
-    echo "  Status: $STATUS"
-
-    if [ "$STATUS" = "STOPPED" ]; then
-        STOP_REASON=$(aws ecs describe-tasks --cluster "$CLUSTER_NAME" --tasks "$TASK_ID" --region "$REGION" \
-            --query 'tasks[0].stoppedReason' --output text)
-        EXIT_CODE=$(aws ecs describe-tasks --cluster "$CLUSTER_NAME" --tasks "$TASK_ID" --region "$REGION" \
-            --query 'tasks[0].containers[0].exitCode' --output text)
-
-        echo ""
-        echo "Task stopped."
-        echo "  Exit code: $EXIT_CODE"
-        echo "  Reason: $STOP_REASON"
-        break
-    fi
-
-    if [ "$STATUS" = "RUNNING" ]; then
-        echo ""
-        echo "Task is running! Tailing logs..."
-        echo "  (Press Ctrl+C to stop watching)"
-        echo ""
-        aws logs tail "$LOG_GROUP" --follow --region "$REGION"
-        break
-    fi
-
-    sleep 2
-done
+# Get final status
+STOP_REASON=$(aws ecs describe-tasks --cluster "$CLUSTER_NAME" --tasks "$TASK_ID" --region "$REGION" \
+    --query 'tasks[0].stoppedReason' --output text)
+EXIT_CODE=$(aws ecs describe-tasks --cluster "$CLUSTER_NAME" --tasks "$TASK_ID" --region "$REGION" \
+    --query 'tasks[0].containers[0].exitCode' --output text)
 
 echo ""
-echo "To view logs manually:"
-echo "  aws logs tail $LOG_GROUP --follow --region $REGION"
+echo "Task completed."
+echo "  Exit code: $EXIT_CODE"
+echo "  Reason: $STOP_REASON"
+
+# Fetch logs for this specific task (filter by task ID in log stream name)
+echo ""
+echo "=== Task Logs ==="
+aws logs filter-log-events \
+    --log-group-name "$LOG_GROUP" \
+    --log-stream-name-prefix "worker/worker/$TASK_ID" \
+    --region "$REGION" \
+    --query 'events[*].message' \
+    --output text

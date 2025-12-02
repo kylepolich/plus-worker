@@ -156,6 +156,7 @@ def run_script_job():
 
     # Update job to SUCCEEDED
     job.completed_at = int(time.time())
+    job.updated_at = int(time.time())
     job.status = objs.PlusScriptStatus.SUCCEEDED
     save_job(dao, job)
 
@@ -207,6 +208,7 @@ def run_collection_job():
 
     # Update job to SUCCEEDED
     job.completed_at = int(time.time())
+    job.updated_at = int(time.time())
     job.status = objs.PlusScriptStatus.SUCCEEDED
     save_job(dao, job)
 
