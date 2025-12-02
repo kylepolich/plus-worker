@@ -24,4 +24,4 @@ RUN pip install --no-cache-dir .
 COPY src/ ./src/
 
 # Entry point
-CMD ["python", "-m", "src.cli"]
+CMD ["python", "-m", "src.worker"]

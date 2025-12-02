@@ -1,0 +1,1148 @@
+syntax = "proto3";
+import "google/protobuf/struct.proto";
+
+message IntegratedAction {
+
+    enum IntegratedActionType {
+        UNUSED = 0;
+        TOOLBAR = 1;
+        NESTED_MENU = 2;
+        RECORD = 3;
+    }
+
+    IntegratedActionType atype = 1;
+    string icon = 2;
+    string hint = 3;
+    string sort_order = 4;
+    string action_id = 5;
+    map<string, AnyType> input_values = 6;
+}
+
+message Application {    
+    string object_id = 1;
+    string owner = 2;             // sys.app
+    int32 created_at = 3;
+    int32 last_updated_at = 4;
+    string label = 5;
+
+    // Note: ApplicationType is also used to generate links to apps
+    enum ApplicationType {
+        HOME = 0;
+        ACTION_RUNNER = 1;
+        ADMIN = 2;
+        PODCAST = 3;
+        SUPPORT = 4;
+        COLLECTIONS = 5;
+        SCHEDULER = 6;
+        STREAMS = 7;
+        NEONPIXEL = 8;
+        FORMBUILDER = 9;
+        MAILINGLIST = 10;
+        FILES = 11;
+        JOBSITE = 12 [deprecated=true];
+        DASHBOARD = 13;
+        NEPTUNE = 14 [deprecated=true];
+        ROUTER = 15;
+        HUBSPOT = 16 [deprecated=true];
+        MARKDOWN = 17;
+        AWS = 18;
+        STORE = 19;
+        API_GATEWAY = 20;
+        DATABASES = 21;
+        MY_ACCOUNT = 22;
+        COURSE = 23;
+        ALERTS = 24;
+        REPORT_CENTER = 25;
+        UPLOAD = 26;
+        SPX = 27 [deprecated=true];
+        PERFORMANCE_REPORT = 29;
+        WIKI_VIEWER = 30;
+        S3FILES = 31;
+        RECENT_UPLOADS = 32;
+        PIVOT_REPORTS = 33;
+        ACTION = 34;
+        AUDIO_EDITOR = 35;
+        LABELLING = 36;
+        PRESENTATION = 37;
+        PRESENTATION_BUILDER = 38;
+        TICKETING = 39;
+        NP_RAW_REPORTING = 40;
+        ARXIV_SEARCH = 41;
+        EMAIL = 42;
+        WALLET = 43;
+        CHATBOT = 44;
+
+        NP_AUDIENCE_REPORT = 100;
+        NP_DAY_ZERO_REPORT = 101;
+
+        API_USER = 102;
+        DISCORD = 103;
+        NP_COMPARE_TIME_RANGE = 104;
+        TABBED = 105;
+    }
+    ApplicationType atype = 6;
+    string desc = 7;
+    string icon = 8;
+
+    // App parameters
+    repeated Parameter install_params = 9;
+    repeated Parameter settings_params = 10;
+    map<string, AnyType> param_values = 11;
+
+    int32 sort_order = 12;
+    reserved 13; // bool cannot_delete = 13;
+    repeated string action_object_ids = 14;
+    reserved 15; // bool singleton = 15;
+    reserved 16; // bool can_share = 16;
+    map<string, string> properties = 17;
+    int32 importance = 18;
+    string alert_message = 19;
+    string alert_icon = 20;
+    string app_id = 21;
+
+    // Application preferences
+    message Preferences {
+        bool singleton = 1;
+        bool allow_configure = 2;
+        bool allow_change_label = 3;
+        bool allow_delete = 4;
+        bool allow_share = 5;
+    }
+    Preferences prefs = 22;
+
+    // Administration parameters
+    repeated Parameter admin_params = 23;
+    map<string, AnyType> admin_settings = 24;
+    repeated IntegratedAction actions = 25;
+}
+
+message Feature {
+    string object_id = 1; // sys.features.${contents.slug}
+    string owner = 2; // sys.features
+    int32 created_at = 3;
+    int32 last_updated_at = 4;
+    string label = 5;
+    string desc = 6;
+    string slug = 7;
+    string icon = 8;
+}
+
+message Receipt {
+    bool success = 1;
+    optional string error_message = 2;
+    map<string, AnyType> outputs = 3;
+    string primary_output = 4;
+    int64 timestamp = 5;
+    float cost = 6;
+}
+
+message UserGroup {
+    string object_id = 1;
+    string owner = 2;             // sys.users.groups
+    int32 created_at = 3;
+    int32 last_updated_at = 4;
+    string label = 5;
+
+    repeated string app_object_ids = 6;
+    repeated string action_object_ids = 7;
+    repeated string features = 8;
+
+    bool is_admin = 9;
+    bool add_to_user_on_signup = 10;
+    string email_regex_match = 11;
+}
+
+message ScheduledAction {
+    string object_id = 1;
+    string owner = 2;
+    enum ActionType {
+        ACTION = 0;
+        PLUS_SCRIPT = 1;
+    }
+    ActionType atype = 17;
+    string script_object_id = 18;
+    string action_id = 3;
+    string cron = 4;
+    string title = 5;
+    string sublabel = 6;
+    string icon = 7;
+
+    int32 error_count = 8;
+    int32 run_count = 9;
+
+    int32 last_compute_ms = 10;
+    int32 last_err_at = 11;
+    string last_err_message = 12;
+    Receipt last_receipt = 13;
+    int32 last_run_at = 14;
+    map<string, AnyType> paramValues = 15;
+    int32 last_updated_at = 16;
+}
+
+message Branding {
+    string object_id = 1;
+    string owner = 2;
+    int64 created_at = 3;
+    string hostname = 4;
+    repeated string initial_group_ids = 5;
+    string homepageTitle = 6;
+    bool signupDisabled = 7;
+    bool canResetPassword = 8;
+}
+
+// Following ticket #3406, we want to have a Library of Schemas also. Please follow the
+// same ideas, but put the controls in Schema Builder so admin users can save / load from
+// pre-build schemas in the library.
+//
+enum SchemaType {
+    GENERAL_SCHEMA = 0;
+    COLLECTION_SCHEMA = 1;
+    STREAM_SCHEMA = 2;
+}
+
+message Collection {
+    string object_id = 1;
+    string owner = 2;
+    int64 created_at = 3;
+    string label = 4;
+    string item_name = 5;
+    string label_formula = 6;
+    bool shared = 7;
+    bool readonly = 8;
+    string trigger_object_id = 9;
+
+    message Button {
+        string uid = 1;
+        string label = 2;
+        string icon = 3;
+        bool disabled = 4;
+        string script_id = 5;
+    }
+    repeated Button buttons = 10;
+}
+
+message Dashboard {
+    string object_id = 1;
+    string owner = 2;
+    repeated DashboardElement elements = 3;
+    map<string, AnyType> dashboard_parameter_values = 4;
+
+    enum Destination {
+        INACTIVE = 0;
+        FILE = 1;
+        COLLECTION = 2;
+        STREAM = 3;
+        ACTION = 4;
+        PLUS_SCRIPT = 5;
+    }
+    Destination destination = 5;
+    string dest_prefix = 6;
+    string dest_owner = 7;
+    string dest_stream_id = 8;
+    string dest_action_id = 9;
+    PlusScript dest_script = 10;
+    bool is_public = 11;
+
+    message OutputDestination {
+        string name = 1;
+        bool keep = 2;
+    }
+    map<string, OutputDestination> action_output_destination = 12;
+
+    message InputMapping {
+        string name = 1;
+        bool is_static = 2;
+        optional AnyType static_val = 3;
+        bool on_demand = 4;
+    }
+    map<string, InputMapping> action_in_map = 13;
+    
+    // Ticket #3300. The user must provide the title of the Dashboard
+    string title = 14;
+}
+
+message DashboardElement {
+    enum Type {
+        UNUSED = 0;
+        FILE = 1;
+        STREAM = 2;
+        YOUTUBE_VIDEO = 3;
+        SUBMIT_BUTTON = 4;
+        UPLOAD = 5;
+        ECHART = 6;
+        DASHBOARD_PARAMETER = 7;
+        MARKDOWN = 8;
+        CHATBOT = 9;
+        DASHBOARD_GROUP = 10;
+        DASHBOARD_STUB = 11;
+    }
+    Type dtype = 1;
+    string uid = 2;
+
+    // Grid parameters for a Dashboard Element
+    // These are all in grid units, not pixels
+    message Layout {
+        int64 x = 1;
+        int64 y = 2;
+        int64 w = 3;
+        int64 h = 4;
+    }
+    map<string, Layout> layouts = 3;
+
+    string file_key = 4;
+    string file_prefix = 5;
+    string stream_id = 6;
+    string url = 7;
+    string action_id = 8;
+    string icon = 9;
+    string title = 10;
+    map<string, string> param_map = 11;
+    string text = 12;
+    string var_name = 13;
+    Parameter param = 14;
+    map<string, AnyType> extra = 15;
+    string script_id = 16;
+
+    // Ticket #4103. Introduce Dashboard Groups
+    repeated DashboardElement elements = 17;
+    int32 num_elements = 18;
+}
+
+// DEPRECATED: Router is deprecated and should not be used in new code
+message Router {
+    enum RouterType {
+        TEST = 0;
+        ACTION = 1;
+    }
+    string object_id = 1;
+    string owner = 2;
+    int64 created_at = 3;
+    string label = 4;
+    string short_desc = 5;
+    string icon = 6;
+    string action_id = 7;
+}
+
+message RouterEvent {
+    int32 timestamp = 1;
+    string text = 2;
+    string error = 3;
+}
+
+// Ticket #3406. The plus_script_type is an indicator
+// of if it is for File Trigger, Stream Trigger, Collections,
+// Scheduler, Dashboard, or Chatbot
+enum PlusScriptType {
+    GENERAL = 0;
+    SCHEDULER = 1;
+    DASHBOARD = 2;
+    DISCORD = 3;
+    GATEWAY = 4;
+    FILE_TRIGGER = 5;
+    STREAM_TRIGGER = 6;
+    COLLECTION_TRIGGER = 7;
+    CHATBOT = 8;
+}
+
+message PlusScript {
+    string object_id = 1;
+    string owner = 2;
+    string version = 3;
+    string label = 4;
+    string short_desc = 5;
+    string icon = 6;
+    repeated Parameter inputs = 7;
+    repeated PlusScriptNode nodes = 8;
+    repeated Parameter outputs = 9;
+
+    message Link {
+        string source = 1;
+        string sourceHandle = 2;
+        string target = 3;
+        string targetHandle = 4;
+    }
+    // map<string, string> links = 10;
+    repeated Link links = 10;
+
+    // Layout parameters for virtual Input and Output nodes.
+    // These are all in virtual pixel units
+    // XYPosition ({ x: number, y: number })
+    PlusScriptNode.Layout input_layout = 11;
+    PlusScriptNode.Layout output_layout = 12;
+}
+
+enum PlusScriptStatus {
+    INITIALIZING = 0;
+    RUNNING = 1;
+    FAILED = 2;
+    SUCCEEDED = 3;
+}
+
+enum PlusScriptContext {
+    INVALID = 0;
+    COLLECTIONS = 1;
+    STREAM = 2;
+    SINGLETON = 3;
+}
+
+message PlusScriptJob {
+    string object_id = 1;
+    string owner = 2;
+    string label = 3;
+    string username = 4;
+    PlusScript script = 5;              // Snapshot at creation
+    PlusScriptStatus status = 6;
+
+    // Timestamps
+    int64 created_at = 7;               // Set by plus-engine
+    int64 started_at = 8;               // Set by Fargate (null until started)
+    int64 completed_at = 9;             // Set when done
+    int64 updated_at = 10;              // Last update
+
+    // Execution state
+    map<string, AnyType> registers = 11;
+    map<string, Receipt> receipts = 12;
+    map<string, AnyType> output = 13;
+    int32 action_count = 14;
+
+    // Control & errors
+    bool request_cancel = 15;
+    string error_message = 16;
+
+    // Fargate link
+    string fargate_task_arn = 17;
+}
+
+
+enum PlusScriptNodeType {
+    TEST = 0;
+    ACTION = 1;
+    STATIC = 2;
+    INPUT = 3;
+    OUTPUT = 4;
+    WRITER = 5;
+    COALESCE = 6;
+    RECEIPT_META = 7;
+    BUNDLER = 8;
+    UI_FEEDBACK = 9; 
+    UPDATE_VALUES = 10;
+}
+
+message PlusScriptNode {
+    PlusScriptNodeType ntype = 1;
+    string unique_id = 2;
+    string label = 3;
+    string action_id = 4;
+    AnyType value = 5;
+
+    // Layout parameters for PlusScript Node
+    // These are all in virtual pixel units
+    // XYPosition ({ x: number, y: number })
+    message Layout {
+        float x = 1;
+        float y = 2;
+        float w = 3;
+        float h = 4;
+    }
+    Layout layout = 6;
+
+    // Available Node Sockets
+    repeated Parameter inputs = 7;
+    repeated Parameter outputs = 8;
+
+    // Destinations (when ntype == WRITER)
+    enum Destination {
+        NULL = 0;
+        FILE = 1;
+        STREAM = 2;
+    }
+
+    // TODO: can we remove the next 5 params?
+    Destination dest_destination = 9;
+    string dest_stream_id = 10;
+    string dest_owner = 11;
+    string dest_prefix = 12;
+    string dest_extension = 13;
+
+    // Ticket #1829. Create a node that works like a Static Node.
+    // However, this one is read-only. The user cannot change it.
+    bool readonly = 14;
+
+    message Conditional {
+        string source = 1;
+        string sourceHandle = 2;
+    }
+
+    Conditional conditional = 15;
+}
+
+message PlusScriptDashboardResponse {
+    bool clear = 1;
+    string toast = 2;
+    bool toast_success = 3;
+    string download_key = 4;
+    Receipt receipt = 5;
+    map<string, AnyType> update_values = 6;
+    string modal = 7;
+    string reply = 8;
+}
+
+message PlusScriptCollectionResponse {
+    string toast = 1;
+    string error = 2;
+    bool refresh = 3;
+    bool remove = 4;
+    Receipt receipt = 5;
+}
+
+message PlusScriptFileTriggerResponse {
+    string toast = 1;
+    string error = 2;
+    Receipt receipt = 3;
+}
+
+// Plus Notebook - A Python notebook with Actions integration
+message PlusNotebook {
+    string object_id = 1;
+    string owner = 2;
+    int64 created_at = 3;
+    int64 last_updated_at = 4;
+    string label = 5;
+    string short_desc = 6;
+    string icon = 7;
+
+    repeated NotebookCell cells = 8;
+
+    // Notebook-level variables/state persisted between sessions
+    map<string, AnyType> variables = 9;
+
+    // Which packages to auto-load when notebook opens
+    repeated string required_packages = 10;
+
+    bool is_public = 11;
+    string last_executed_by = 12;
+    int64 last_executed_at = 13;
+}
+
+message NotebookCell {
+    string uid = 1;
+
+    enum CellType {
+        CODE = 0;
+        MARKDOWN = 1;
+        ACTION = 2;      // A cell that runs a Plus Action
+    }
+    CellType ctype = 2;
+
+    string source = 3;              // The code or markdown content
+    repeated CellOutput outputs = 4;
+
+    int32 execution_count = 5;      // null if never run, else 1, 2, 3...
+
+    enum CellStatus {
+        IDLE = 0;
+        QUEUED = 1;
+        RUNNING = 2;
+        SUCCESS = 3;
+        ERROR = 4;
+    }
+    CellStatus status = 6;
+
+    int64 last_executed_at = 7;
+    int32 execution_duration_ms = 8;
+
+    // For ACTION cells - which action to run
+    string action_id = 9;
+    map<string, AnyType> action_inputs = 10;
+}
+
+message CellOutput {
+    enum OutputType {
+        STREAM = 0;         // stdout/stderr
+        TEXT = 1;           // Plain text result
+        IMAGE = 2;          // PNG/JPEG (base64 or key reference)
+        HTML = 3;           // Rich HTML output
+        JSON = 4;           // Structured data
+        ERROR = 5;          // Exception/traceback
+        RECEIPT = 6;        // Plus Action receipt
+        CHART = 7;          // EChart or similar
+    }
+    OutputType otype = 1;
+
+    string text = 2;                // For STREAM, TEXT, ERROR, HTML
+    string image_key = 3;           // For IMAGE - reference to stored file
+    string image_base64 = 4;        // For IMAGE - inline (small images)
+    string mime_type = 5;           // e.g., "image/png", "text/html"
+
+    AnyType data = 6;               // For JSON output
+    Receipt receipt = 7;            // For RECEIPT - Action result
+
+    // For STREAM output
+    enum StreamType {
+        STDOUT = 0;
+        STDERR = 1;
+    }
+    StreamType stream_type = 8;
+}
+
+// Structure to hold credentials for various credential types
+message WalletCredential {
+    string object_id = 1;
+    string owner = 2;
+    string label = 3;
+
+    enum Type {
+        AuraDB = 0; // "aura-db"
+        AWS = 1; // "aws"
+        ElasticSearch = 2; // "elastic-search"
+        Neo4j = 3; // "neo4j"
+        OpenAI = 4; // "open-ai"
+        SendGrid = 5; // "send-grid"
+        Discord = 6; // "discord"
+        GCP = 7; // "gcp"
+        Stripe = 8; // "stripe"
+        Telnyx = 9; // "telnyx"
+    }
+    Type credentialType = 4;
+
+    map<string, AnyType> values = 5;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// DEPRECATED: Matcher is deprecated and should not be used in new code
+message Matcher {
+    enum MatcherType {
+        EXACT=0;
+    }
+    MatcherType mtype = 1;
+    optional string sval = 2;
+}
+
+message RouterPath {
+    repeated Matcher matcher = 1;
+    repeated Action actions = 3;
+}
+
+message SubscriptionOption {
+    string object_id = 1;
+    string owner = 2;
+    string subscription_slug = 3;
+    string title = 4;
+    string short_desc = 5;
+    string long_desc = 6;
+    string icon = 7;
+    float max_storage_space_mb = 8;
+    float monthly_credits = 9;
+    bool show_ads = 10;
+    float cost_usa = 11;
+    string stripe_price_id = 12;
+}
+
+message DataSource {
+    enum DataSourceType {
+        UNUSED = 0;
+        COLLECTIONS = 1;
+        AWS_S3_BUCKET = 2;
+        NEONPIXEL_METRICS = 3;
+        MNTN_API = 4;
+        US_STATES = 5;
+        NEONPIXEL_CAMPAIGN_GROUPS = 6;
+        STATIC_VALUES = 7;
+        USER_IN_GROUP = 8;
+        INVERTED_MAP = 9; // Requires object_id which has `mapping`, a dictionary of A->B which is many to one.  The user picks B (Many) and ends up selecting all matches in A (One)
+        NEONPIXEL_ADVERTISERS = 10;
+        STREAM = 11;
+        STREAM_ITEM = 12;
+        CREDENTIAL_WALLET = 13;
+        ACTION = 14;
+    }
+    DataSourceType dstype = 1;
+    string owner = 2;          // when dstype == COLLECTIONS, use this like src_owners is used in legacy
+    string valueColumn = 3;    // If empty string, assume valueColumn='object_id'
+    string labelColumn = 4;    // If empty, try to use label | name | title | object_id
+    string filterByColumn = 5;
+    string filterValueMatches = 6;
+    string aws_cred_object_id = 7;
+    map<string, string> smap = 8;
+    map<string, string> dependencyMap = 9;
+    repeated LabelledParam staticVals = 10;
+    string object_id = 11;
+    bool use_label_formula = 12;
+    string action_id = 13;
+}
+
+message Parameter {
+    bool optional = 1;
+    string var_name = 2;
+    string label = 3;
+    ParameterType ptype = 4;
+    repeated Validation validations = 5;
+    repeated LabelledParam svals = 6;
+    optional string sdefault = 7;
+    optional int64 idefault = 8;
+    optional float ddefault = 11;
+    optional bool bdefault = 9;
+    map<string, string> smap = 12;
+    map<string, int64> imap = 13;
+    repeated string src_owners = 10;
+    map<string, AnyType> extra = 14;
+    map<string, AnyType> conditionals = 15;
+    bool conditional_match_all = 16;
+    repeated float dvals = 17;
+    optional string hint = 18;
+    repeated DataSource data_sources = 19;
+    repeated string sdefaults = 20;
+    optional bool immutable = 21;
+    repeated Parameter params = 22;
+}
+
+message PlusForm {
+    repeated Parameter params = 1;
+    optional string back_label = 2;    
+    optional string submit_label = 3;
+}
+
+
+
+// DEPRECATED: StringList is deprecated and should not be used in new code
+message StringList {
+    repeated string value = 1;
+}
+
+message Action {
+    string object_id = 1;
+    string owner = 2;
+    string sys_name = 3;
+    string sys_action_id = 4;
+    repeated Parameter params = 5;
+    repeated Parameter outputs = 6;
+    string unique_id = 7;
+    string public_action_id = 8;
+
+    string label = 9;
+    string icon = 10;
+    string short_desc = 11;
+    string long_desc = 12;
+
+    ActionRunMode run_mode = 13;
+
+    string image = 14;
+    repeated ActionAvailability availability = 15;
+
+    enum DisplayFormat {
+        FORM_AND_RECEIPTS = 0;
+        CHATBOT = 1;
+        FORM_OR_RECEIPT = 2;
+    }
+    DisplayFormat display_format = 16;
+    repeated Parameter job_outputs = 17;
+    bool is_nondeterministic = 18;
+}
+
+enum ActionRunMode {
+    SYNCHRONOUS = 0;
+    JOB = 1;
+}
+
+enum ActionAvailability {
+    FILE_APP_ACTION_TAB = 0;
+    FILE_APP_CONTEXT_MENU = 1;
+    FILE_APP_BLOB_TRIGGER = 2;
+    STREAM_APP_STREAM_TRIGGER = 3;
+    SCHEDULER_APP = 4;
+    COLLECTIONS_RUN_ON_ITEM = 5;
+    COLLECTIONS_RUN_ON_ALL = 6;
+    API_GATEWAY = 7;
+    CHATBOT_APP = 8;
+}
+
+enum ParameterType {
+    STRING = 0;
+    ACE = 106;
+    BYTES = 34;
+    BOOLEAN = 1;
+    INTEGER = 2;
+    FLOAT = 3;
+    KEY = 4;
+    PREFIX = 5;
+    FIXED_LIST_SINGLE_SELECT = 6;
+    FIXED_LIST_MULTI_SELECT = 7;
+    URL = 8;
+    US_CURRENCY_AMT = 9 [deprecated=true];
+    IP_ADDRESS = 10;
+    LIST = 11;
+    STREAM_RECORD = 108;
+    CRON = 12;
+    OBJECT_ID = 13;
+    UNIQUE_ID = 14;
+    JOB_ID = 16;
+    VECTOR = 17;
+    DATETIME = 20;
+
+    FEED_ID = 18 [deprecated=true];
+    CURRENT_FEED_ID = 21 [deprecated=true];
+    STREAM_PARAM = 107;
+    STREAM_PARAMS = 110;
+    DASHBOARD_PARAMS = 114;
+
+    COPY = 30 [deprecated=true];
+    STRING_MAP = 31;
+    INTEGER_MAP = 37;
+    USERNAME = 32;
+    CSV_COLUMN = 35;
+    CSV_COLUMNS = 116;
+    HIDDEN = 36;
+
+    COLOR_PICKER = 140;
+    OWNER = 141;
+    COLLECTION_PARAM = 142;
+    COLLECTION_PARAMS = 143;
+    TIMESTAMP = 144;
+    OBJECT_IDS = 145;
+    RECEIPT = 146;
+    UNDEFINED = 147;
+    HOSTNAME = 148;
+    DATERANGE = 149;
+    MAILING_ADDRESS = 150;
+    ICON_PICKER = 151;
+    JSON = 152;
+    REQUEST_BODY = 153;
+    RESPONSE_BODY = 154;
+    ACTION_ID = 19;
+    DISPLAY_ONLY = 121;
+    NESTED_OBJECT = 155;
+    NESTED_OBJECTS = 156;
+    DROPDOWN_ITEMS = 157;
+    ANY_TYPE_MAP = 15;
+}
+
+message Validation {
+    ValidationType vtype = 1;
+    optional bool bval = 2;
+    optional int64 ival = 3;
+    optional double dval = 4;
+    optional string sval = 5;
+    repeated string svals = 6;
+    repeated double dvals = 7;
+    repeated int64 ivals = 8;
+    optional string error_message = 9;
+}
+
+enum ValidationType {
+    UNUSED = 0;
+    ENDS_WITH = 3;
+    VALID_URL = 4;
+    MIN_LENGTH = 5;
+    MAX_LENGTH = 6;
+    GREATER_THAN = 7;
+    LESS_THAN = 8;
+    GREATER_THAN_OR_EQUAL = 9;
+    LESS_THAN_OR_EQUAL = 10;
+    EMAIL = 12;
+    STARTS_WITH = 15;
+}
+
+message AnyType {
+    ParameterType ptype = 1;
+
+    // Primitives
+    optional bool bval = 2;
+    optional int64 ival = 3;
+    optional double dval = 4;
+    optional string sval = 5;
+
+    // Vectors / arrays
+    repeated string svals = 6;
+    repeated double dvals = 7;
+    repeated int64 ivals = 8;
+    optional ParameterMap mapping = 9; // Used for ParameterType.ANY_TYPE_MAP
+    optional bytes byval = 10;
+
+    // Maps
+    map<string, string> smap = 11;
+    map<string, int64> imap = 12;
+    optional google.protobuf.Struct json_data = 13;
+
+    // Nested AnyType values
+    repeated AnyType vals = 14;
+    map<string, AnyType> vmap = 15;
+}
+
+message MenuItem {
+    optional string object_id = 1;
+    optional string owner = 2;
+    enum MenuItemType {
+        STREAM_TRIGGER = 0;         // https://github.com/kylepolich/portal/issues/1936
+        BLOBSTORE_TRIGGER = 1;
+        SCHEDULABLE = 2;
+        FORAGER_MENU = 3;
+        PSCRIPT_STEP = 4;
+        DASHBOARD_INTEGRATION = 5;
+        STREAM_MENU = 6;            // https://github.com/kylepolich/portal/issues/1936
+        ACTION_BUTTON = 7;
+        STREAM_ITEM_MENU = 8;       // https://github.com/kylepolich/portal/issues/1936
+        DASHBOARD_ELEMENT = 9;      // https://github.com/kylepolich/portal/issues/2410
+        STREAM_CONSTRUCTOR = 10;    // https://github.com/kylepolich/portal/issues/2409
+        NEW_DASHBOARD_MENU = 11;    // https://github.com/kylepolich/portal/issues/2411
+        SEARCH_ITEM_ACTION = 12;    //
+        FORAGER_FOCUSED = 13;       // https://github.com/kylepolich/portal/issues/3497
+        STYLING_OPTION = 14;        // https://github.com/kylepolich/portal/issues/3704
+        FORM_BUILDER_DESTINATION=15;// https://github.com/kylepolich/portal/issues/4190
+        WORKBENCH = 16;             // https://github.com/kylepolich/portal/issues/4756
+        CHROME_PLUGIN = 17;         // https://github.com/kylepolich/portal/issues/4925
+        GOOGLE_OAUTH = 18;          // https://github.com/kylepolich/portal/issues/5024
+    }
+    MenuItemType mtype = 3;
+    string menu_path = 4;
+    string match_pattern = 5;           // Wildcard match against Event/Key
+    string action_id = 6;
+    string item_object_id = 7;
+    optional string tease_slug = 8; // https://github.com/kylepolich/portal/issues/4371
+    bool read_only_match_pattern = 9; // https://github.com/kylepolich/portal/issues/5151
+}
+
+message BlobTrigger {
+    enum TriggerType {
+        ACTION = 0;
+        PLUS_SCRIPT = 1;
+    }
+    string object_id = 1;
+    string owner = 2;
+    string action_id = 3;
+    string src_prefix = 4;
+    repeated string match_patterns = 5;
+    map<string, AnyType> param_values = 6;
+    string label = 7;
+    bool recursive = 8;
+    int64 trigger_count = 9;
+    int64 fail_count = 10;
+    TriggerType ttype = 11; // #2365. Update protobuf if necessary to save this choice.
+    Receipt last_receipt = 12;
+}
+
+message StreamTrigger {
+    enum TriggerType {
+        ACTION = 0;
+        PLUS_SCRIPT = 1;
+    }
+    string object_id = 1;
+    string owner = 2;      // = stream_id
+    string label = 3;
+    string action_id = 4;
+    repeated ParameterMap in_map = 6;
+    repeated ParameterMap out_map = 7;
+    TriggerType ttype = 8; // #2364. Update protobuf if necessary to save this choice
+}
+
+message CollectionTrigger {
+    enum TriggerType {
+        INVALID = 0;
+        UPDATE = 1;
+    }
+    TriggerType ttype = 1;
+    string object_id = 2;
+    string owner = 3;
+    string label = 4;
+    string action_id = 5;
+    PlusScript script = 6;
+}
+
+message ScheduledEvent {
+    string object_id = 1;
+    string owner = 2;
+    string cron = 3;
+    string action_id = 4;
+    string dest_stream_id = 5;
+    string username = 6;
+    optional int64 last_run_at = 7;
+    optional AnyType last_output = 8;
+    repeated ParameterMap in_map = 9;
+}
+
+message ObjectConstructorPage {
+    string title = 1;
+    string description = 2;
+    string back_button_label = 3;
+    string next_button_label = 4;
+    repeated Parameter params = 5;
+    map<string, string> layout = 6;   // https://github.com/kylepolich/portal/issues/4377
+    string icon = 7;
+}
+
+message ObjectConstructor {
+    string object_id = 1;
+    string owner = 2;
+    string icon = 4;
+    string name = 5;
+    string short_desc = 6;
+    string long_desc = 7;
+    repeated ObjectConstructorPage pages = 9;
+    repeated string install_action_id = 11;
+    repeated ParameterMap install_inmap = 12;
+    repeated string uninstall_action_id = 13;
+    repeated ParameterMap uninstall_inmap = 14;
+    string html_key = 15;
+    FormOnComplete on_complete = 17;
+    map<string, string> metadata = 18;
+}
+
+message FormOnComplete {
+    string thankYouMarkdown = 1;
+}
+
+message ObjectConstructorOnSubmit {
+    string label = 1;
+    Action action = 2;
+    string icon = 3;
+}
+
+message LabelledParam {
+    string label = 1;
+    string value = 2;
+    string icon = 3;
+    string description = 4;
+    bool disabled = 5;
+}
+
+message ParameterMap {
+    string src = 1;
+    string dest = 2;
+    optional AnyType static_val = 3;
+    ParameterType ptype = 4;
+}
+
+
+message TimelineEvent {
+    string feed_id = 1;
+    int64 published_at = 2;
+    ParameterType type = 3;
+    optional string sval = 4;
+    optional int64 ival = 5;
+    optional bool bval = 6;
+    optional double dval = 7;
+    map<string, AnyType> dict_val = 8;
+}
+
+message WaitForStep {
+    string wait_on_step_id = 1;
+    bool run_on_success = 2;
+    bool run_on_failure = 3;
+}
+
+message WaitConditional {
+    string register_name = 1;
+    optional AnyType run_value = 2;
+    optional AnyType skip_value = 4;
+}
+
+message StreamEvent {
+    string stream_id = 1;
+    int64 timestamp = 2;
+    enum EventType {
+        PING = 0;
+        BLOB_CREATED = 1;
+        BLOB_DELETED = 2;
+        GENERIC = 3;
+        SLACK = 4;
+    }
+    EventType etype = 3;
+    map<string, AnyType> data = 4;
+    optional string session_id = 5;
+}
+
+message ActionProvider {
+    string object_id = 1;
+    string owner = 2;
+    string secondary_key = 3;
+    string sys_name = 4;
+    string label = 5;
+    int64 action_at_ts = 6;
+    string host_root_url = 7;
+    string endpoint_pattern = 8;
+}
+
+message UserAccount {
+    string object_id = 1;
+    string owner = 2;
+    string username = 3;
+
+    message HashPassword {
+        string hash = 1;
+        string salt = 2;
+    }
+    HashPassword hashedPassword = 23;
+    bool active = 4;
+    int64 created_at = 5;
+    string signup_src = 6;
+    int64 last_updated_at = 7;
+    int64 apps_maintenance_done_ts = 8;
+    int64 user_maintenance_done_ts = 9;
+    float max_storage_space_mb = 25;
+    float current_storage_space = 26;
+    float monthly_credits = 10;
+    float credits_remaining = 11;
+    repeated string dashboard_object_ids = 12;
+    int64 billing_period_ends_ts = 13;
+    bool show_ads = 14;
+    string subscription_slug = 15;
+    repeated string additional_profiles = 16;
+    repeated string completed_tutorials = 17;
+    optional string next_dashboard_id = 18;
+    repeated Parameter params = 19;
+    map<string, AnyType> param_values = 20;
+    string confirmation_token = 21;
+    bool locked = 22;
+    map<string, string> hiddens = 24;
+
+    message AuditLog {
+        int64 first_login_ts = 1; // (first login timestamp)
+        string first_login_ip = 2;
+        int64 last_login_ts = 3;
+        string last_login_ip = 4;
+    }
+    AuditLog audit_log = 30;
+
+    message SessionData {
+        string confirmation_token = 1;
+        bool two_factor_configured = 2;
+        string two_factor_secret = 3;
+        bool two_factor_verified = 4;
+        int64 two_factor_check_ts = 5;
+        optional string oauth2_rtoken = 6;
+        optional string oauth2_atoken = 7;
+        int64 apps_maintenance_done_ts = 8;
+        int64 user_maintenance_done_ts = 9;
+    }
+    SessionData session_data = 31;
+    // bool two_factor_configured = 26;
+    // string two_factor_secret = 27;
+    // bool two_factor_verified = 28;
+    // optional int64 two_factor_check_ts = 29;
+}
+
+// 2FA States:
+// 1. 2FA is not configured (default): { two_factor_configured: false, two_factor_secret: "" }
+// 2. 2FA is enabled: { two_factor_configured: true, two_factor_secret: "ADSSAAQ" }
+// 3. 2FA is turned off: { two_factor_configured: true, two_factor_secret: "" }
+
+// DEPRECATED: Utterance is deprecated and should not be used in new code
+message Utterance {
+    ParameterType ptype = 1;
+    AnyType msg = 2;
+}
