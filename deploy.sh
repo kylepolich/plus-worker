@@ -32,10 +32,15 @@ CODEARTIFACT_AUTH_TOKEN=$(aws codeartifact get-authorization-token \
     --query authorizationToken \
     --output text)
 
-# Build for linux/amd64 (Fargate default)
+# Write token to temp file for BuildKit secret (more secure than --build-arg)
+TOKEN_FILE=$(mktemp)
+echo -n "$CODEARTIFACT_AUTH_TOKEN" > "$TOKEN_FILE"
+trap "rm -f $TOKEN_FILE" EXIT
+
+# Build for linux/amd64 (Fargate default) using BuildKit secrets
 echo "Building image (linux/amd64)..."
-docker build --platform linux/amd64 \
-    --build-arg CODEARTIFACT_AUTH_TOKEN="$CODEARTIFACT_AUTH_TOKEN" \
+DOCKER_BUILDKIT=1 docker build --platform linux/amd64 \
+    --secret id=codeartifact_token,src="$TOKEN_FILE" \
     --build-arg AWS_ACCOUNT_ID="$ACCOUNT_ID" \
     -t "$REPO_NAME" "$SCRIPT_DIR"
 

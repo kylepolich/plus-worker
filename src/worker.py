@@ -45,8 +45,7 @@ REQUIRED_ENV = [
 # Additional required vars per mode
 MODE_REQUIRED_ENV = {
     'RUN_ACTION': ['ACTION_ID'],
-    'RUN_SCRIPT': [],
-    'RUN_COLLECTION': ['COLLECTION_OWNER'],
+    'RUN_JOB': [],  # job_type is in the job itself (run_on_collection, run_on_stream)
 }
 
 
@@ -276,8 +275,15 @@ def get_dao():
     return DataAccessObject(props, running_as_worker=True)
 
 
-def load_job(dao, job_id: str) -> objs.PlusScriptJob:
-    """Load PlusScriptJob from DynamoDB and parse as protobuf."""
+def load_job(dao, job_id: str) -> tuple:
+    """Load PlusScriptJob from DynamoDB. Returns (protobuf, raw_doc) tuple.
+
+    The raw_doc contains extra fields not in the protobuf:
+    - job_type: 'run_on_collection' or 'run_on_stream'
+    - collection_key or stream_key
+    - hostname
+    - input_data
+    """
     docstore = dao.get_docstore()
     doc = docstore.get_document(job_id)
 
@@ -285,7 +291,7 @@ def load_job(dao, job_id: str) -> objs.PlusScriptJob:
         raise ValueError(f"Job not found: {job_id}")
 
     job = Parse(json.dumps(doc), objs.PlusScriptJob(), ignore_unknown_fields=True)
-    return job
+    return job, doc
 
 
 def save_job(dao, job: objs.PlusScriptJob):
@@ -295,25 +301,38 @@ def save_job(dao, job: objs.PlusScriptJob):
     docstore.save_document(job.object_id, doc)
 
 
-def run_script_job():
-    """Run a PlusScriptJob using PSEE."""
+def run_job():
+    """Run a PlusScriptJob using PSEE. Handles both collection and stream jobs."""
     job_id = os.environ.get('JOB_ID')
     print(f"\nLoading job: {job_id}")
 
     # Initialize DAO
     dao = get_dao()
 
-    # Load job from DynamoDB
+    # Load job from DynamoDB (get both protobuf and raw doc for extra fields)
     try:
-        job = load_job(dao, job_id)
+        job, job_doc = load_job(dao, job_id)
     except Exception as e:
         print(f"ERROR: Failed to load job: {e}", file=sys.stderr)
         sys.exit(1)
 
+    # Extract extra fields from raw doc
+    job_type = job_doc.get('job_type', 'singleton')
+    collection_key = job_doc.get('collection_key')
+    stream_key = job_doc.get('stream_key')
+    hostname = job_doc.get('hostname')
+    input_data = job_doc.get('input_data', {})
+
     print(f"Job loaded: {job.label}")
     print(f"  owner: {job.owner}")
     print(f"  username: {job.username}")
+    print(f"  job_type: {job_type}")
     print(f"  current status: {objs.PlusScriptStatus.Name(job.status)}")
+
+    if collection_key:
+        print(f"  collection_key: {collection_key}")
+    if stream_key:
+        print(f"  stream_key: {stream_key}")
 
     # Update job to RUNNING
     now = int(time.time())
@@ -330,10 +349,16 @@ def run_script_job():
     save_job(dao, job)
     print(f"Job status updated to RUNNING")
 
-    # Run the job using JobRunner (which uses PSEE internally)
+    # Dispatch based on job_type
     try:
-        runner = JobRunner(dao, job)
-        job = runner.run()
+        if job_type == 'run_on_collection':
+            job = run_on_collection(dao, job, hostname, collection_key, input_data)
+        elif job_type == 'run_on_stream':
+            job = run_on_stream(dao, job, hostname, stream_key, input_data)
+        else:
+            # Singleton job - just run once
+            runner = JobRunner(dao, job)
+            job = runner.run()
     except Exception as e:
         print(f"ERROR: Job execution failed: {e}", file=sys.stderr)
         traceback.print_exc()
@@ -353,6 +378,245 @@ def run_script_job():
     if job.status == objs.PlusScriptStatus.FAILED:
         print(f"  Error: {job.error_message}", file=sys.stderr)
         sys.exit(1)
+
+
+def search_by_owner(dao, owner: str) -> list:
+    """Search for all items with a given owner using DynamoDB.
+
+    Tries GSI query on 'owner' first (efficient), falls back to scan.
+    """
+    import boto3
+    from boto3.dynamodb.conditions import Key, Attr
+
+    table_name = os.environ.get('DYNAMO_TABLE')
+    region = os.environ.get('REGION')
+    access_key = os.environ.get('ACCESS_KEY')
+    secret_key = os.environ.get('SECRET_KEY')
+
+    dynamodb = boto3.resource(
+        'dynamodb',
+        region_name=region,
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key
+    )
+    table = dynamodb.Table(table_name)
+
+    items = []
+
+    # Try querying GSI on 'owner' field first (most efficient)
+    try:
+        query_kwargs = {
+            'IndexName': 'owner-index',
+            'KeyConditionExpression': Key('owner').eq(owner)
+        }
+        while True:
+            response = table.query(**query_kwargs)
+            items.extend(response.get('Items', []))
+            if 'LastEvaluatedKey' not in response:
+                break
+            query_kwargs['ExclusiveStartKey'] = response['LastEvaluatedKey']
+
+        if items:
+            print(f"  Found {len(items)} items via owner-index GSI")
+            return items
+    except Exception as e:
+        print(f"  GSI query failed ({e}), falling back to scan")
+
+    # Fallback: scan with filter on owner field
+    scan_kwargs = {
+        'FilterExpression': Attr('owner').eq(owner)
+    }
+    while True:
+        response = table.scan(**scan_kwargs)
+        items.extend(response.get('Items', []))
+        if 'LastEvaluatedKey' not in response:
+            break
+        scan_kwargs['ExclusiveStartKey'] = response['LastEvaluatedKey']
+
+    print(f"  Found {len(items)} items via scan")
+
+    # Filter out jobs - only return actual collection/stream items
+    # Collection items have pk like: owner.{unique_id}
+    # Jobs have pk like: hostname/username/job.{uuid}
+    filtered = [item for item in items if '/job.' not in item.get('pk', '')]
+    if len(filtered) != len(items):
+        print(f"  Filtered to {len(filtered)} items (excluded {len(items) - len(filtered)} jobs)")
+
+    return filtered
+
+
+def run_on_collection(dao, job: objs.PlusScriptJob, hostname: str,
+                      collection_key: str, input_data: dict) -> objs.PlusScriptJob:
+    """Run a script on each item in a collection."""
+    owner = job.owner  # e.g., 'plus_dataskeptic_com/kyle@dataskeptic.com/collection.arxiv_ratings'
+
+    print(f"\n{'='*60}")
+    print(f"RUNNING ON COLLECTION: {collection_key}")
+    print(f"{'='*60}")
+
+    # Search for all items in the collection (workaround for docstore.search bug)
+    print(f"  Searching for items with owner: {owner}")
+    items = search_by_owner(dao, owner)
+
+    if not items:
+        print(f"  WARNING: No items found in collection")
+        job.status = objs.PlusScriptStatus.SUCCEEDED
+        job.error_message = "No items found in collection"
+        return job
+
+    print(f"  Found {len(items)} items to process")
+
+    # Create executor for tracking counts
+    executor = WorkerActionExecutor(dao, None)
+    psee = PlusScriptExecutionEngine(dao, executor)
+
+    success_count = 0
+    error_count = 0
+
+    for i, item in enumerate(items):
+        item_object_id = item.get('pk', item.get('object_id', 'unknown'))
+
+        print(f"\n  [{i+1}/{len(items)}] Processing: {item_object_id}")
+        print(f"  {'='*50}")
+
+        # Merge input_data with item data (ensure object_id is set)
+        script_input = dict(input_data) if input_data else {}
+        script_input.update(item)
+        script_input['object_id'] = item_object_id
+
+        try:
+            # Start a fresh job for this item using the same script
+            item_job = psee.start_script(hostname, job.username, job.script, script_input)
+
+            # Run the job until completion
+            item_job = psee.run_job(item_job)
+            while item_job.status == objs.PlusScriptStatus.RUNNING:
+                item_job = psee.run_job(item_job)
+
+            if item_job.status == objs.PlusScriptStatus.FAILED:
+                print(f"    -> FAILED: {item_job.error_message}")
+                error_count += 1
+            else:
+                print(f"    -> SUCCESS")
+                success_count += 1
+
+        except Exception as e:
+            print(f"    -> ERROR: {str(e)}")
+            error_count += 1
+
+        # Update progress
+        job.percent = int(((i + 1) / len(items)) * 100)
+        job.success_count = success_count
+        job.error_count = error_count
+        job.updated_at = int(time.time())
+        save_job(dao, job)
+
+    # Final status
+    job.percent = 100
+    job.success_count = success_count
+    job.error_count = error_count
+
+    if error_count == 0:
+        job.status = objs.PlusScriptStatus.SUCCEEDED
+    elif success_count == 0:
+        job.status = objs.PlusScriptStatus.FAILED
+        job.error_message = f"All {error_count} items failed"
+    else:
+        job.status = objs.PlusScriptStatus.SUCCEEDED  # Partial success
+        job.error_message = f"{error_count} of {len(items)} items failed"
+
+    print(f"\n{'='*60}")
+    print(f"COLLECTION COMPLETE: {success_count} succeeded, {error_count} failed")
+    print(f"{'='*60}")
+
+    return job
+
+
+def run_on_stream(dao, job: objs.PlusScriptJob, hostname: str,
+                  stream_key: str, input_data: dict) -> objs.PlusScriptJob:
+    """Run a script on each item in a stream."""
+
+    print(f"\n{'='*60}")
+    print(f"RUNNING ON STREAM: {stream_key}")
+    print(f"{'='*60}")
+
+    # Stream items are stored differently - search by stream owner
+    stream_owner = f'{hostname}/{job.username}/stream.{stream_key}'
+    print(f"  Searching for items with owner: {stream_owner}")
+    items = search_by_owner(dao, stream_owner)
+
+    if not items:
+        print(f"  WARNING: No items found in stream")
+        job.status = objs.PlusScriptStatus.SUCCEEDED
+        job.error_message = "No items found in stream"
+        return job
+
+    print(f"  Found {len(items)} items to process")
+
+    # Create executor for tracking counts
+    executor = WorkerActionExecutor(dao, None)
+    psee = PlusScriptExecutionEngine(dao, executor)
+
+    success_count = 0
+    error_count = 0
+
+    for i, item in enumerate(items):
+        item_object_id = item.get('pk', item.get('object_id', 'unknown'))
+
+        print(f"\n  [{i+1}/{len(items)}] Processing: {item_object_id}")
+        print(f"  {'='*50}")
+
+        # Merge input_data with item data (ensure object_id is set)
+        script_input = dict(input_data) if input_data else {}
+        script_input.update(item)
+        script_input['object_id'] = item_object_id
+
+        try:
+            # Start a fresh job for this item using the same script
+            item_job = psee.start_script(hostname, job.username, job.script, script_input)
+
+            # Run until completion
+            item_job = psee.run_job(item_job)
+            while item_job.status == objs.PlusScriptStatus.RUNNING:
+                item_job = psee.run_job(item_job)
+
+            if item_job.status == objs.PlusScriptStatus.FAILED:
+                print(f"    -> FAILED: {item_job.error_message}")
+                error_count += 1
+            else:
+                print(f"    -> SUCCESS")
+                success_count += 1
+
+        except Exception as e:
+            print(f"    -> ERROR: {str(e)}")
+            error_count += 1
+
+        # Update progress
+        job.percent = int(((i + 1) / len(items)) * 100)
+        job.success_count = success_count
+        job.error_count = error_count
+        job.updated_at = int(time.time())
+        save_job(dao, job)
+
+    # Final status
+    job.percent = 100
+    job.success_count = success_count
+    job.error_count = error_count
+
+    if error_count == 0:
+        job.status = objs.PlusScriptStatus.SUCCEEDED
+    elif success_count == 0:
+        job.status = objs.PlusScriptStatus.FAILED
+        job.error_message = f"All {error_count} items failed"
+    else:
+        job.status = objs.PlusScriptStatus.SUCCEEDED  # Partial success
+        job.error_message = f"{error_count} of {len(items)} items failed"
+
+    print(f"\n{'='*60}")
+    print(f"STREAM COMPLETE: {success_count} succeeded, {error_count} failed")
+    print(f"{'='*60}")
+
+    return job
 
 
 def run_action():
@@ -410,69 +674,6 @@ def run_action():
         sys.exit(1)
 
 
-def run_collection_job():
-    """Run a PlusScriptJob for collection processing."""
-    job_id = os.environ.get('JOB_ID')
-    collection_owner = os.environ.get('COLLECTION_OWNER')
-    print(f"\nLoading job: {job_id}")
-    print(f"Collection owner: {collection_owner}")
-
-    # Initialize DAO
-    dao = get_dao()
-
-    # Load job from DynamoDB
-    try:
-        job = load_job(dao, job_id)
-    except Exception as e:
-        print(f"ERROR: Failed to load job: {e}", file=sys.stderr)
-        sys.exit(1)
-
-    print(f"Job loaded: {job.label}")
-    print(f"  owner: {job.owner}")
-    print(f"  username: {job.username}")
-    print(f"  current status: {objs.PlusScriptStatus.Name(job.status)}")
-
-    # Update job to RUNNING
-    now = int(time.time())
-    job.started_at = now
-    job.status = objs.PlusScriptStatus.RUNNING
-
-    # Try to get Fargate task ARN
-    task_arn = get_fargate_task_arn()
-    if task_arn:
-        job.fargate_task_arn = task_arn
-        print(f"  fargate_task_arn: {task_arn}")
-
-    # Save initial RUNNING state
-    save_job(dao, job)
-    print(f"Job status updated to RUNNING")
-
-    # Run the job using JobRunner (which uses PSEE internally)
-    # Collection jobs work the same way - the script handles collection iteration
-    try:
-        runner = JobRunner(dao, job)
-        job = runner.run()
-    except Exception as e:
-        print(f"ERROR: Job execution failed: {e}", file=sys.stderr)
-        traceback.print_exc()
-        job.status = objs.PlusScriptStatus.FAILED
-        job.error_message = str(e)
-
-    # Set completion timestamp
-    job.completed_at = int(time.time())
-    job.updated_at = int(time.time())
-
-    # Final save
-    save_job(dao, job)
-
-    status_name = objs.PlusScriptStatus.Name(job.status)
-    print(f"\nJob completed with status: {status_name}")
-
-    if job.status == objs.PlusScriptStatus.FAILED:
-        print(f"  Error: {job.error_message}", file=sys.stderr)
-        sys.exit(1)
-
-
 def main():
     print("=" * 50)
     print("plus-worker starting")
@@ -483,14 +684,13 @@ def main():
     run_mode = os.environ.get('RUN_MODE')
     print(f"\nRUN_MODE: {run_mode}")
 
-    if run_mode == 'RUN_SCRIPT':
-        run_script_job()
-    elif run_mode == 'RUN_COLLECTION':
-        run_collection_job()
+    if run_mode == 'RUN_JOB':
+        run_job()
     elif run_mode == 'RUN_ACTION':
         run_action()
     else:
         print(f"ERROR: Unknown RUN_MODE: {run_mode}", file=sys.stderr)
+        print(f"  Valid modes: RUN_JOB, RUN_ACTION", file=sys.stderr)
         sys.exit(1)
 
     print("=" * 50)

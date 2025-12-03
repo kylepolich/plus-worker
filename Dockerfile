@@ -7,14 +7,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Configure pip for AWS CodeArtifact
-ARG CODEARTIFACT_AUTH_TOKEN
-ARG AWS_ACCOUNT_ID
-RUN pip config set global.index-url https://aws:${CODEARTIFACT_AUTH_TOKEN}@plus-${AWS_ACCOUNT_ID}.d.codeartifact.us-east-1.amazonaws.com/pypi/plus-python/simple/
-
-# Install Python dependencies
+# Copy pyproject.toml first for better caching
 COPY pyproject.toml .
-RUN pip install --no-cache-dir .
+
+# Install Python dependencies using BuildKit secret for CodeArtifact token
+# The secret is mounted only during this RUN command and not stored in the image
+ARG AWS_ACCOUNT_ID
+RUN --mount=type=secret,id=codeartifact_token \
+    pip config set global.index-url https://aws:$(cat /run/secrets/codeartifact_token)@plus-${AWS_ACCOUNT_ID}.d.codeartifact.us-east-1.amazonaws.com/pypi/plus-python/simple/ && \
+    pip install --no-cache-dir . && \
+    pip config unset global.index-url
 
 # Copy source code
 COPY src/ ./src/
