@@ -6,23 +6,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
+# Configure pip for AWS CodeArtifact
+ARG CODEARTIFACT_AUTH_TOKEN
+ARG AWS_ACCOUNT_ID
+RUN pip config set global.index-url https://aws:${CODEARTIFACT_AUTH_TOKEN}@plus-${AWS_ACCOUNT_ID}.d.codeartifact.us-east-1.amazonaws.com/pypi/plus-python/simple/
+
 # Install Python dependencies
 COPY pyproject.toml .
 RUN pip install --no-cache-dir .
 
-# TODO: Install plus-engine and feaas-core as dependencies
-# Option 1: Git deps
-# RUN pip install git+https://github.com/org/feaas-core.git@main
-# RUN pip install git+https://github.com/org/plus-engine.git@main
-#
-# Option 2: CodeArtifact (uncomment and configure)
-# ARG CODEARTIFACT_AUTH_TOKEN
-# RUN pip config set global.index-url https://aws:${CODEARTIFACT_AUTH_TOKEN}@domain-owner.d.codeartifact.region.amazonaws.com/pypi/repo/simple/
-# RUN pip install feaas-core plus-engine
-
 # Copy source code
 COPY src/ ./src/
-COPY feaas/ ./feaas/
 
 # Force unbuffered stdout/stderr for real-time logs
 ENV PYTHONUNBUFFERED=1

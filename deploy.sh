@@ -23,9 +23,21 @@ echo ""
 echo "Logging into ECR..."
 aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com"
 
+# Get CodeArtifact auth token for pip
+echo "Getting CodeArtifact auth token..."
+CODEARTIFACT_AUTH_TOKEN=$(aws codeartifact get-authorization-token \
+    --domain plus \
+    --domain-owner "$ACCOUNT_ID" \
+    --region "$REGION" \
+    --query authorizationToken \
+    --output text)
+
 # Build for linux/amd64 (Fargate default)
 echo "Building image (linux/amd64)..."
-docker build --platform linux/amd64 -t "$REPO_NAME" "$SCRIPT_DIR"
+docker build --platform linux/amd64 \
+    --build-arg CODEARTIFACT_AUTH_TOKEN="$CODEARTIFACT_AUTH_TOKEN" \
+    --build-arg AWS_ACCOUNT_ID="$ACCOUNT_ID" \
+    -t "$REPO_NAME" "$SCRIPT_DIR"
 
 # Tag and push
 echo "Pushing to ECR..."
