@@ -535,15 +535,17 @@ def run_on_collection(dao, job: objs.PlusScriptJob, hostname: str,
 def run_on_stream(dao, job: objs.PlusScriptJob, hostname: str,
                   stream_key: str, input_data: dict) -> objs.PlusScriptJob:
     """Run a script on each item in a stream."""
+    streams = dao.get_streams()
 
     print(f"\n{'='*60}")
     print(f"RUNNING ON STREAM: {stream_key}")
     print(f"{'='*60}")
 
-    # Stream items are stored differently - search by stream owner
-    stream_owner = f'{hostname}/{job.username}/stream.{stream_key}'
-    print(f"  Searching for items with owner: {stream_owner}")
-    items = search_by_owner(dao, stream_owner)
+    # Stream items are in DYNAMO_STREAMS_TABLE, keyed by stream_id
+    stream_id = f'{hostname}/{job.username}/stream.{stream_key}'
+    print(f"  Reading stream: {stream_id}")
+    items = streams.read_stream(stream_id, after_timestamp=0, limit=10000)
+    print(f"  Found {len(items)} items")
 
     if not items:
         print(f"  WARNING: No items found in stream")
@@ -561,15 +563,17 @@ def run_on_stream(dao, job: objs.PlusScriptJob, hostname: str,
     error_count = 0
 
     for i, item in enumerate(items):
-        item_object_id = item.get('pk', item.get('object_id', 'unknown'))
+        # Stream items use timestamp as identifier
+        item_ts = item.get('timestamp', 'unknown')
 
-        print(f"\n  [{i+1}/{len(items)}] Processing: {item_object_id}")
+        print(f"\n  [{i+1}/{len(items)}] Processing: {stream_id}@{item_ts}")
         print(f"  {'='*50}")
 
-        # Merge input_data with item data (ensure object_id is set)
+        # Merge input_data with item data
         script_input = dict(input_data) if input_data else {}
         script_input.update(item)
-        script_input['object_id'] = item_object_id
+        script_input['stream_id'] = stream_id
+        script_input['timestamp'] = item_ts
 
         try:
             # Start a fresh job for this item using the same script
