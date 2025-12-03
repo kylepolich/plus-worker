@@ -1,1 +1,2 @@
-# Local heavy-compute actions (FFMPEG, etc.)
+# plus-worker actions
+from src.actions.vendor.ffmpeg import *
