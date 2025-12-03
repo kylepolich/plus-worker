@@ -1,67 +1,36 @@
 """FFMPEG Extract Audio action - extract audio track from video."""
-from typing import Any, Dict, List
-
+import feaas.objects as objs
 from src.actions.vendor.ffmpeg.base import FFMPEGAction
 
 
 class ExtractAudio(FFMPEGAction):
     """Extract audio track from a video file."""
 
-    action_id = "ffmpeg.extract_audio"
-    label = "Extract Audio"
-    short_desc = "Extract the audio track from a video file"
-    icon = "music"
-
-    @property
-    def params(self) -> List[Dict[str, Any]]:
-        return [
-            {
-                "var_name": "video_file",
-                "label": "Video File",
-                "ptype": "STRING",
-                "hint": "S3 key of the video file",
-            },
-            {
-                "var_name": "format",
-                "label": "Audio Format",
-                "ptype": "STRING",
-                "hint": "Output audio format",
-                "sdefault": "mp3",
-                "svals": [
-                    {"label": "MP3", "value": "mp3"},
-                    {"label": "WAV", "value": "wav"},
-                    {"label": "AAC", "value": "aac"},
-                    {"label": "FLAC", "value": "flac"},
-                    {"label": "OGG", "value": "ogg"},
-                ],
-            },
+    def __init__(self, dao):
+        params = [
+            objs.Parameter(var_name='video_file', label='Video File', ptype=objs.ParameterType.STRING),
+            objs.Parameter(var_name='format', label='Audio Format', ptype=objs.ParameterType.STRING),
         ]
-
-    @property
-    def outputs(self) -> List[Dict[str, Any]]:
-        return [
-            {"var_name": "audio_file", "label": "Audio File", "ptype": "STRING"},
+        outputs = [
+            objs.Parameter(var_name='audio_file', label='Audio File', ptype=objs.ParameterType.STRING),
         ]
+        super().__init__(dao, params, outputs)
 
-    def execute(self, dao, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        video_key = inputs["video_file"]
-        audio_format = inputs.get("format", "mp3").lower()
-
+    def execute_action(self, video_file, format='mp3') -> objs.Receipt:
+        audio_format = format.lower()
         local_input = None
         local_output = None
 
         try:
-            # Download video
-            local_input = self.download_file(dao, video_key)
+            local_input = self.download_file(video_file)
 
-            # Prepare output path
             import tempfile
-            local_output = tempfile.mktemp(suffix=f".{audio_format}")
+            import os
+            fd, local_output = tempfile.mkstemp(suffix=f".{audio_format}")
+            os.close(fd)
 
-            # Build ffmpeg command
-            args = ["-i", local_input, "-vn"]  # -vn = no video
+            args = ["-i", local_input, "-vn"]
 
-            # Format-specific encoding
             if audio_format == "mp3":
                 args += ["-c:a", "libmp3lame", "-q:a", "2"]
             elif audio_format == "wav":
@@ -74,15 +43,17 @@ class ExtractAudio(FFMPEGAction):
                 args += ["-c:a", "libvorbis", "-q:a", "4"]
 
             args.append(local_output)
-
-            # Run extraction
             self.run_ffmpeg(args)
 
-            # Upload result
-            output_key = self.get_output_key(video_key, "audio", audio_format)
-            self.upload_file(dao, local_output, output_key)
+            output_key = self.get_output_key(video_file, "audio", audio_format)
+            self.upload_file(local_output, output_key)
 
-            return {"audio_file": output_key}
+            return objs.Receipt(
+                success=True, primary_output='audio_file',
+                outputs={'audio_file': objs.AnyType(ptype=objs.ParameterType.STRING, sval=output_key)}
+            )
 
+        except Exception as e:
+            return objs.Receipt(success=False, error_message=str(e))
         finally:
             self.cleanup(local_input, local_output)
