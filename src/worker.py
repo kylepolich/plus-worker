@@ -24,9 +24,6 @@ from feaas.util.common import build_action_class
 from google.protobuf.json_format import Parse, MessageToDict
 
 # Search paths for action resolution (first match wins)
-# Node types for script processing
-UPDATE_NODE_TYPE = objs.PlusScriptNodeType.UPDATE
-RECEIPT_AGGREGATOR_NODE_TYPE = objs.PlusScriptNodeType.RECEIPT_AGGREGATOR
 ACTION_SEARCH_PATHS = [
     'src.actions.vendor',    # Local worker actions (ffmpeg, etc.)
     'plus_engine.actions',   # plus-engine actions
@@ -239,11 +236,11 @@ def get_update_field_mappings(script: objs.PlusScript) -> dict:
 
     This is determined by edges that connect to the Update node.
     """
-    # Find the Update node
+    # Find the Update node (ntype = UPDATE_VALUES = 10)
     update_node = None
     update_node_id = None
     for node in script.nodes:
-        if node.ntype == UPDATE_NODE_TYPE:
+        if node.ntype == objs.PlusScriptNodeType.UPDATE_VALUES:
             update_node = node
             update_node_id = node.node_id
             break
