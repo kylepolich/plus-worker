@@ -42,6 +42,7 @@
 - [ ] Test FFMPEG action end-to-end with RUN_ACTION mode (start with Probe)
 
 ## Future Work
+- [ ] Implement receipt aggregator for run_on_collection and run_on_stream
 - [x] Move build/deploy to GitHub Actions
 - [ ] Support `oncomplete` callback scripts
 - [ ] **Use IAM task roles instead of ACCESS_KEY/SECRET_KEY** - Stop injecting credentials via environment variables; use ECS task execution role with appropriate IAM permissions for DynamoDB, S3, etc.

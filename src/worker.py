@@ -26,7 +26,7 @@ from google.protobuf.json_format import Parse, MessageToDict
 # Search paths for action resolution (first match wins)
 ACTION_SEARCH_PATHS = [
     'src.actions.vendor',    # Local worker actions (ffmpeg, etc.)
-    'chalicelib.actions',    # plus-engine actions
+    'plus_engine.actions',   # plus-engine actions
     'feaas.actions',         # plus-core built-ins
 ]
 
@@ -647,7 +647,7 @@ def run_on_stream(dao, job: objs.PlusScriptJob, hostname: str,
 
 def register_actions():
     """Crawl and register all worker actions to DynamoDB."""
-    from chalicelib.acrawler import AvailableActionCrawler
+    from plus_engine.acrawler import AvailableActionCrawler
     from feaas.dao.docstore.dynamo import DynamoDocstore
     from google.protobuf.json_format import MessageToDict
 
