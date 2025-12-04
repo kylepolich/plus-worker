@@ -2,7 +2,6 @@
 
 AWS Fargate worker for executing long-running PlusScript jobs. This service handles compute-intensive tasks that exceed Lambda's 15-minute timeout, such as batch processing, media transcoding, and large dataset operations.
 
-
 ## Architecture
 
 ```
