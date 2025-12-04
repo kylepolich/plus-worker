@@ -24,6 +24,9 @@ from feaas.util.common import build_action_class
 from google.protobuf.json_format import Parse, MessageToDict
 
 # Search paths for action resolution (first match wins)
+# Node types for script processing
+UPDATE_NODE_TYPE = objs.PlusScriptNodeType.UPDATE
+RECEIPT_AGGREGATOR_NODE_TYPE = objs.PlusScriptNodeType.RECEIPT_AGGREGATOR
 ACTION_SEARCH_PATHS = [
     'src.actions.vendor',    # Local worker actions (ffmpeg, etc.)
     'plus_engine.actions',   # plus-engine actions
@@ -216,6 +219,117 @@ class JobRunner:
             self.job.error_count = executor.error_count
 
         return self.job
+
+
+def extract_job_uuid(job_id: str) -> str:
+    """Extract the UUID portion from a job_id like 'hostname/username/job.{uuid}'."""
+    if '/job.' in job_id:
+        return job_id.split('/job.')[-1]
+    elif 'job.' in job_id:
+        return job_id.split('job.')[-1]
+    return job_id
+
+
+def get_update_field_mappings(script: objs.PlusScript) -> dict:
+    """
+    Find the Update node in a script and return field mappings from action outputs.
+
+    Returns a dict mapping: {source_field: target_field}
+    e.g., {'Output': 'Label', 'Resp': 'Resp'}
+
+    This is determined by edges that connect to the Update node.
+    """
+    # Find the Update node
+    update_node = None
+    update_node_id = None
+    for node in script.nodes:
+        if node.ntype == UPDATE_NODE_TYPE:
+            update_node = node
+            update_node_id = node.node_id
+            break
+
+    if not update_node:
+        return {}
+
+    # Find edges pointing TO the Update node
+    # Edge format: source_node_id.output_name -> target_node_id.input_name
+    mappings = {}
+    for edge in script.edges:
+        if edge.target_node_id == update_node_id:
+            # edge.source_field is the output from the action (e.g., 'Output')
+            # edge.target_field is the field to update (e.g., 'Label')
+            source_field = edge.source_field
+            target_field = edge.target_field
+            if source_field and target_field:
+                mappings[source_field] = target_field
+
+    return mappings
+
+
+def apply_update_mappings(docstore, item_object_id: str, action_outputs: dict,
+                          mappings: dict) -> bool:
+    """
+    Apply Update node mappings to update the original item document.
+
+    Args:
+        docstore: The docstore to use for updating
+        item_object_id: The object_id of the item to update
+        action_outputs: Dict of outputs from the action (e.g., {'Output': 'reversed_text'})
+        mappings: Dict mapping source fields to target fields (e.g., {'Output': 'Label'})
+
+    Returns:
+        True if update succeeded, False otherwise
+
+    # TODO: Consider batching updates instead of one-by-one for better performance
+    """
+    if not mappings or not action_outputs:
+        return True
+
+    # Load current document
+    doc = docstore.get_document(item_object_id)
+    if not doc:
+        print(f"    WARNING: Could not load document {item_object_id} for update")
+        return False
+
+    # Apply mappings
+    updated_fields = []
+    for source_field, target_field in mappings.items():
+        if source_field in action_outputs:
+            doc[target_field] = action_outputs[source_field]
+            updated_fields.append(f"{source_field}->{target_field}")
+
+    if updated_fields:
+        # Save updated document
+        docstore.save_document(item_object_id, doc)
+        print(f"    Updated fields: {', '.join(updated_fields)}")
+
+    return True
+
+
+def write_receipt_to_stream(streams, stream_id: str, receipt: objs.Receipt,
+                            item_object_id: str):
+    """
+    Write a receipt to the run-all results stream.
+
+    Args:
+        streams: The streams interface from DAO
+        stream_id: The stream to write to (e.g., 'hostname/username/stream-run-all.{uuid}')
+        receipt: The Receipt protobuf from action execution
+        item_object_id: The object_id of the item that was processed
+    """
+    receipt_data = {
+        'object_id': item_object_id,
+        'success': receipt.success,
+        'error_message': receipt.error_message if receipt.error_message else None,
+        'timestamp': int(time.time()),
+    }
+
+    # Include outputs if present
+    if receipt.outputs:
+        receipt_data['outputs'] = dict(receipt.outputs)
+
+    streams.write_to_stream(stream_id, receipt_data)
+    print(f"    Receipt written to stream: {stream_id}")
 
 
 def check_env():
@@ -491,6 +605,22 @@ def run_on_collection(dao, job: objs.PlusScriptJob, hostname: str,
 
     print(f"  Found {len(items)} items to process")
 
+    # Get Update node field mappings from the script
+    update_mappings = get_update_field_mappings(job.script)
+    if update_mappings:
+        print(f"  Update mappings: {update_mappings}")
+    else:
+        print(f"  No Update node mappings found")
+
+    # Set up receipt stream: {hostname}/{username}/stream-run-all.{uuid}
+    job_uuid = extract_job_uuid(job.object_id)
+    receipt_stream_id = f"{hostname}/{job.username}/stream-run-all.{job_uuid}"
+    print(f"  Receipt stream: {receipt_stream_id}")
+
+    # Get docstore and streams for updates
+    docstore = dao.get_docstore()
+    streams = dao.get_streams()
+
     # Create executor for tracking counts
     executor = WorkerActionExecutor(dao, None)
     psee = PlusScriptExecutionEngine(dao, executor)
@@ -509,6 +639,9 @@ def run_on_collection(dao, job: objs.PlusScriptJob, hostname: str,
         script_input.update(item)
         script_input['object_id'] = item_object_id
 
+        # Track the receipt for this item
+        item_receipt = None
+
         try:
             # Start a fresh job for this item using the same script
             item_job = psee.start_script(hostname, job.username, job.script, script_input)
@@ -521,13 +654,41 @@ def run_on_collection(dao, job: objs.PlusScriptJob, hostname: str,
             if item_job.status == objs.PlusScriptStatus.FAILED:
                 print(f"    -> FAILED: {item_job.error_message}")
                 error_count += 1
+                item_receipt = objs.Receipt(
+                    success=False,
+                    error_message=item_job.error_message
+                )
             else:
                 print(f"    -> SUCCESS")
                 success_count += 1
 
+                # Get outputs from the completed job for update mappings
+                # The outputs are stored in item_job.data after execution
+                action_outputs = {}
+                if item_job.data:
+                    action_outputs = dict(item_job.data)
+
+                # Apply Update node mappings to update the original record
+                # TODO: Consider batching updates instead of one-by-one for better performance
+                if update_mappings and action_outputs:
+                    apply_update_mappings(docstore, item_object_id, action_outputs, update_mappings)
+
+                item_receipt = objs.Receipt(
+                    success=True,
+                    outputs=action_outputs
+                )
+
         except Exception as e:
             print(f"    -> ERROR: {str(e)}")
             error_count += 1
+            item_receipt = objs.Receipt(
+                success=False,
+                error_message=str(e)
+            )
+
+        # Write receipt to stream
+        if item_receipt:
+            write_receipt_to_stream(streams, receipt_stream_id, item_receipt, item_object_id)
 
         # Update progress
         job.percent = int(((i + 1) / len(items)) * 100)
@@ -552,23 +713,24 @@ def run_on_collection(dao, job: objs.PlusScriptJob, hostname: str,
 
     print(f"\n{'='*60}")
     print(f"COLLECTION COMPLETE: {success_count} succeeded, {error_count} failed")
+    print(f"  Receipts written to: {receipt_stream_id}")
     print(f"{'='*60}")
 
     return job
 
 
 def run_on_stream(dao, job: objs.PlusScriptJob, hostname: str,
-                  stream_id: str, input_data: dict) -> objs.PlusScriptJob:
+                  source_stream_id: str, input_data: dict) -> objs.PlusScriptJob:
     """Run a script on each item in a stream."""
     streams = dao.get_streams()
 
     print(f"\n{'='*60}")
-    print(f"RUNNING ON STREAM: {stream_id}")
+    print(f"RUNNING ON STREAM: {source_stream_id}")
     print(f"{'='*60}")
 
     # Stream items are in DYNAMO_STREAMS_TABLE, keyed by stream_id
-    print(f"  Reading stream: {stream_id}")
-    items = streams.read_stream(stream_id, after_timestamp=0, limit=10000)
+    print(f"  Reading stream: {source_stream_id}")
+    items = streams.read_stream(source_stream_id, after_timestamp=0, limit=10000)
     print(f"  Found {len(items)} items")
 
     if not items:
@@ -578,6 +740,21 @@ def run_on_stream(dao, job: objs.PlusScriptJob, hostname: str,
         return job
 
     print(f"  Found {len(items)} items to process")
+
+    # Get Update node field mappings from the script
+    update_mappings = get_update_field_mappings(job.script)
+    if update_mappings:
+        print(f"  Update mappings: {update_mappings}")
+    else:
+        print(f"  No Update node mappings found")
+
+    # Set up receipt stream: {hostname}/{username}/stream-run-all.{uuid}
+    job_uuid = extract_job_uuid(job.object_id)
+    receipt_stream_id = f"{hostname}/{job.username}/stream-run-all.{job_uuid}"
+    print(f"  Receipt stream: {receipt_stream_id}")
+
+    # Get docstore for updates (stream items don't typically get updated, but support it)
+    docstore = dao.get_docstore()
 
     # Create executor for tracking counts
     executor = WorkerActionExecutor(dao, None)
@@ -589,15 +766,19 @@ def run_on_stream(dao, job: objs.PlusScriptJob, hostname: str,
     for i, item in enumerate(items):
         # Stream items use timestamp as identifier
         item_ts = item.get('timestamp', 'unknown')
+        item_id = f"{source_stream_id}@{item_ts}"
 
-        print(f"\n  [{i+1}/{len(items)}] Processing: {stream_id}@{item_ts}")
+        print(f"\n  [{i+1}/{len(items)}] Processing: {item_id}")
         print(f"  {'='*50}")
 
         # Merge input_data with item data
         script_input = dict(input_data) if input_data else {}
         script_input.update(item)
-        script_input['stream_id'] = stream_id
+        script_input['stream_id'] = source_stream_id
         script_input['timestamp'] = item_ts
+
+        # Track the receipt for this item
+        item_receipt = None
 
         try:
             # Start a fresh job for this item using the same script
@@ -611,13 +792,39 @@ def run_on_stream(dao, job: objs.PlusScriptJob, hostname: str,
             if item_job.status == objs.PlusScriptStatus.FAILED:
                 print(f"    -> FAILED: {item_job.error_message}")
                 error_count += 1
+                item_receipt = objs.Receipt(
+                    success=False,
+                    error_message=item_job.error_message
+                )
             else:
                 print(f"    -> SUCCESS")
                 success_count += 1
 
+                # Get outputs from the completed job
+                action_outputs = {}
+                if item_job.data:
+                    action_outputs = dict(item_job.data)
+
+                # Note: Stream items typically don't get updated like collection items
+                # but we support it if there's an Update node with mappings
+                # TODO: Consider batching updates instead of one-by-one for better performance
+
+                item_receipt = objs.Receipt(
+                    success=True,
+                    outputs=action_outputs
+                )
+
         except Exception as e:
             print(f"    -> ERROR: {str(e)}")
             error_count += 1
+            item_receipt = objs.Receipt(
+                success=False,
+                error_message=str(e)
+            )
+
+        # Write receipt to stream
+        if item_receipt:
+            write_receipt_to_stream(streams, receipt_stream_id, item_receipt, item_id)
 
         # Update progress
         job.percent = int(((i + 1) / len(items)) * 100)
@@ -642,6 +849,7 @@ def run_on_stream(dao, job: objs.PlusScriptJob, hostname: str,
 
     print(f"\n{'='*60}")
     print(f"STREAM COMPLETE: {success_count} succeeded, {error_count} failed")
+    print(f"  Receipts written to: {receipt_stream_id}")
     print(f"{'='*60}")
 
     return job
