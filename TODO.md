@@ -42,6 +42,7 @@
 - [ ] Test FFMPEG action end-to-end with RUN_ACTION mode (start with Probe)
 
 ## Future Work
+- [ ] Fix IAM user confusion: plus-engine uses `feaas-py` to launch Fargate tasks, not `feaas-core-ci-cd`. Need to properly document which IAM user needs which permissions.
 - [ ] Implement receipt aggregator for run_on_collection and run_on_stream
 - [x] Move build/deploy to GitHub Actions
 - [ ] Support `oncomplete` callback scripts
