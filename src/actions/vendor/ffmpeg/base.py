@@ -18,12 +18,12 @@ class FFMPEGAction(AbstractAction):
         """Initialize with DAO and action parameters.
 
         Args:
-            dao: DataAccessObject for storage operations
+            dao: DataAccessObject for storage operations (can be None for metadata extraction)
             params: List of objs.Parameter for inputs
             outputs: List of objs.Parameter for outputs
         """
         self.dao = dao
-        self.blobstore = dao.get_blobstore()
+        self.blobstore = dao.get_blobstore() if dao else None
         super().__init__(params, outputs)
 
     def download_file(self, file_key: str) -> str:

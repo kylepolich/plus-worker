@@ -1,0 +1,137 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: plus-worker
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.build.outputs.image_tag }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Get CodeArtifact auth token
+        id: codeartifact
+        run: |
+          TOKEN=$(aws codeartifact get-authorization-token \
+            --domain plus \
+            --domain-owner ${{ secrets.AWS_ACCOUNT_ID }} \
+            --region ${{ env.AWS_REGION }} \
+            --query authorizationToken \
+            --output text)
+          echo "token=$TOKEN" >> $GITHUB_OUTPUT
+
+      - name: Build and push Docker image
+        id: build
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          CODEARTIFACT_TOKEN: ${{ steps.codeartifact.outputs.token }}
+        run: |
+          # Write token to temp file for BuildKit secret
+          echo -n "$CODEARTIFACT_TOKEN" > /tmp/codeartifact_token
+
+          # Build with BuildKit secrets
+          DOCKER_BUILDKIT=1 docker build \
+            --secret id=codeartifact_token,src=/tmp/codeartifact_token \
+            --build-arg AWS_ACCOUNT_ID=${{ secrets.AWS_ACCOUNT_ID }} \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:${{ github.sha }} \
+            .
+
+          # Push both tags
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:${{ github.sha }}
+
+          # Cleanup
+          rm -f /tmp/codeartifact_token
+
+          echo "image_tag=${{ github.sha }}" >> $GITHUB_OUTPUT
+
+  deploy-staging:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: staging
+    if: github.event_name == 'push' || github.event.inputs.environment == 'staging'
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Register actions in DynamoDB
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker run --rm \
+            -e RUN_MODE=REGISTER_ACTIONS \
+            -e REGION=${{ env.AWS_REGION }} \
+            -e ACCESS_KEY=${{ secrets.AWS_ACCESS_KEY_ID }} \
+            -e SECRET_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }} \
+            -e DYNAMO_TABLE=${{ vars.DYNAMO_TABLE }} \
+            $ECR_REGISTRY/$ECR_REPOSITORY:${{ needs.build.outputs.image_tag }}
+
+  deploy-production:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: production
+    if: github.event.inputs.environment == 'production'
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Register actions in DynamoDB
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker run --rm \
+            -e RUN_MODE=REGISTER_ACTIONS \
+            -e REGION=${{ env.AWS_REGION }} \
+            -e ACCESS_KEY=${{ secrets.AWS_ACCESS_KEY_ID }} \
+            -e SECRET_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }} \
+            -e DYNAMO_TABLE=${{ vars.DYNAMO_TABLE }} \
+            $ECR_REGISTRY/$ECR_REPOSITORY:${{ needs.build.outputs.image_tag }}
