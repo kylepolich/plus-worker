@@ -37,7 +37,7 @@
 
 ## Ready to Test
 - [x] Deploy and test RUN_JOB mode with a real PlusScriptJob
-- [x] Test run_on_collection job type - WORKING
+- [x] Test run_on_collection job type - WORKING (blocked on feaas-core build_action_class fix)
 - [ ] Test run_on_stream job type
 - [ ] Test FFMPEG action end-to-end with RUN_ACTION mode (start with Probe)
 
