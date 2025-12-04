@@ -3,6 +3,7 @@ Entry point for plus-worker Fargate tasks.
 
 Reads configuration from environment variables and executes the requested action.
 """
+from decimal import Decimal
 import json
 import logging
 import os
@@ -288,7 +289,13 @@ def load_job(dao, job_id: str) -> tuple:
     if doc is None:
         raise ValueError(f"Job not found: {job_id}")
 
-    job = Parse(json.dumps(doc), objs.PlusScriptJob(), ignore_unknown_fields=True)
+    # Convert Decimals to int/float for JSON serialization
+    def decimal_default(obj):
+        if isinstance(obj, Decimal):
+            return int(obj) if obj % 1 == 0 else float(obj)
+        raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
+
+    job = Parse(json.dumps(doc, default=decimal_default), objs.PlusScriptJob(), ignore_unknown_fields=True)
     return job, doc
 
 
