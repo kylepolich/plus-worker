@@ -42,6 +42,8 @@ BASE_REQUIRED_ENV = [
 MODE_REQUIRED_ENV = {
     'RUN_ACTION': ['JOB_ID', 'USERNAME', 'DYNAMO_STREAMS_TABLE', 'PRIMARY_BUCKET', 'ACTION_ID'],
     'RUN_JOB': ['JOB_ID', 'USERNAME', 'DYNAMO_STREAMS_TABLE', 'PRIMARY_BUCKET'],
+    'RUN_COLLECTION': ['JOB_ID', 'USERNAME', 'DYNAMO_STREAMS_TABLE', 'PRIMARY_BUCKET'],
+    'RUN_STREAM': ['JOB_ID', 'USERNAME', 'DYNAMO_STREAMS_TABLE', 'PRIMARY_BUCKET'],
     'REGISTER_ACTIONS': [],  # Only needs base env vars
 }
 
@@ -297,7 +299,7 @@ def save_job(dao, job: objs.PlusScriptJob):
     docstore.save_document(job.object_id, doc)
 
 
-def run_job():
+def run_job(force_job_type=None):
     """Run a PlusScriptJob using PSEE. Handles both collection and stream jobs."""
     job_id = os.environ.get('JOB_ID')
     print(f"\nLoading job: {job_id}")
@@ -313,7 +315,8 @@ def run_job():
         sys.exit(1)
 
     # Extract extra fields from raw doc
-    job_type = job_doc.get('job_type', 'singleton')
+    # force_job_type overrides what's in the doc (for RUN_COLLECTION/RUN_STREAM modes)
+    job_type = force_job_type or job_doc.get('job_type', 'singleton')
     collection_key = job_doc.get('collection_key')
     stream_key = job_doc.get('stream_key')
     hostname = job_doc.get('hostname')
@@ -766,13 +769,17 @@ def main():
 
     if run_mode == 'RUN_JOB':
         run_job()
+    elif run_mode == 'RUN_COLLECTION':
+        run_job(force_job_type='run_on_collection')
+    elif run_mode == 'RUN_STREAM':
+        run_job(force_job_type='run_on_stream')
     elif run_mode == 'RUN_ACTION':
         run_action()
     elif run_mode == 'REGISTER_ACTIONS':
         register_actions()
     else:
         print(f"ERROR: Unknown RUN_MODE: {run_mode}", file=sys.stderr)
-        print(f"  Valid modes: RUN_JOB, RUN_ACTION, REGISTER_ACTIONS", file=sys.stderr)
+        print(f"  Valid modes: RUN_JOB, RUN_COLLECTION, RUN_STREAM, RUN_ACTION, REGISTER_ACTIONS", file=sys.stderr)
         sys.exit(1)
 
     print("=" * 50)
