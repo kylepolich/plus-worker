@@ -3,57 +3,40 @@ Debug action that sleeps for a specified number of seconds.
 Useful for testing long-running Fargate jobs.
 """
 import time
-from feaas.action import AbstractAction
-from feaas import objects as objs
+
+import feaas.objects as objs
+from feaas.abstract import AbstractAction
 
 
 class Nap(AbstractAction):
     """Sleep for a specified number of seconds."""
 
-    @staticmethod
-    def get_name():
-        return "sys.debug.Nap"
-
-    @staticmethod
-    def get_label():
-        return "Nap (Sleep)"
-
-    @staticmethod
-    def get_short_desc():
-        return "Sleep for a specified number of seconds"
-
-    @staticmethod
-    def get_inputs():
-        return [
+    def __init__(self, dao):
+        params = [
             objs.Parameter(
                 var_name="seconds",
                 ptype=objs.ParameterType.INTEGER,
                 label="Seconds",
-                short_desc="Number of seconds to sleep",
-                required=True
+                hint="Number of seconds to sleep (max 3600)"
             )
         ]
 
-    @staticmethod
-    def get_outputs():
-        return [
+        outputs = [
             objs.Parameter(
                 var_name="slept_seconds",
                 ptype=objs.ParameterType.INTEGER,
-                label="Slept Seconds",
-                short_desc="Number of seconds actually slept"
+                label="Slept Seconds"
             ),
             objs.Parameter(
                 var_name="message",
                 ptype=objs.ParameterType.STRING,
-                label="Message",
-                short_desc="Confirmation message"
+                label="Message"
             )
         ]
 
-    def execute(self):
-        seconds = self.params.get("seconds", 0)
+        super().__init__(params, outputs)
 
+    def execute_action(self, seconds=0) -> objs.Receipt:
         # Clamp to reasonable range
         if seconds < 0:
             seconds = 0

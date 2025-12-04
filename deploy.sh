@@ -51,6 +51,28 @@ docker push "$ECR_URI:latest"
 
 echo ""
 echo "Done! Image pushed to $ECR_URI:latest"
+
+# Register actions in DynamoDB
+echo ""
+echo "Registering actions in DynamoDB..."
+
+# Load runtime env vars
+if [ -f "$SCRIPT_DIR/.env" ]; then
+    source "$SCRIPT_DIR/.env"
+fi
+
+if [ -z "$DYNAMO_TABLE" ]; then
+    echo "Warning: DYNAMO_TABLE not set in .env, skipping action registration"
+else
+    docker run --rm \
+        -e RUN_MODE=REGISTER_ACTIONS \
+        -e REGION="$REGION" \
+        -e ACCESS_KEY="$ACCESS_KEY" \
+        -e SECRET_KEY="$SECRET_KEY" \
+        -e DYNAMO_TABLE="$DYNAMO_TABLE" \
+        "$REPO_NAME:latest"
+fi
+
 echo ""
 echo "To run a test task:"
 echo "  ./run-task.sh"

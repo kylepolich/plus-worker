@@ -29,23 +29,20 @@ ACTION_SEARCH_PATHS = [
     'feaas.actions',         # plus-core built-ins
 ]
 
-# Required for all modes
-REQUIRED_ENV = [
+# Base required for all modes
+BASE_REQUIRED_ENV = [
     'RUN_MODE',
-    'JOB_ID',
-    'USERNAME',
     'REGION',
     'ACCESS_KEY',
     'SECRET_KEY',
     'DYNAMO_TABLE',
-    'DYNAMO_STREAMS_TABLE',
-    'PRIMARY_BUCKET',
 ]
 
 # Additional required vars per mode
 MODE_REQUIRED_ENV = {
-    'RUN_ACTION': ['ACTION_ID'],
-    'RUN_JOB': [],  # job_type is in the job itself (run_on_collection, run_on_stream)
+    'RUN_ACTION': ['JOB_ID', 'USERNAME', 'DYNAMO_STREAMS_TABLE', 'PRIMARY_BUCKET', 'ACTION_ID'],
+    'RUN_JOB': ['JOB_ID', 'USERNAME', 'DYNAMO_STREAMS_TABLE', 'PRIMARY_BUCKET'],
+    'REGISTER_ACTIONS': [],  # Only needs base env vars
 }
 
 
@@ -218,12 +215,14 @@ class JobRunner:
 def check_env():
     """Validate all required environment variables are set. Exit 1 if any missing."""
     missing = []
+    run_mode = os.environ.get('RUN_MODE')
 
-    for var in REQUIRED_ENV:
+    # Check base requirements
+    for var in BASE_REQUIRED_ENV:
         if not os.environ.get(var):
             missing.append(var)
 
-    run_mode = os.environ.get('RUN_MODE')
+    # Check mode-specific requirements
     if run_mode in MODE_REQUIRED_ENV:
         for var in MODE_REQUIRED_ENV[run_mode]:
             if not os.environ.get(var):
@@ -236,16 +235,13 @@ def check_env():
         sys.exit(1)
 
     print("Environment check passed. Found all required variables:")
-    for var in REQUIRED_ENV:
+    all_vars = BASE_REQUIRED_ENV + MODE_REQUIRED_ENV.get(run_mode, [])
+    for var in all_vars:
         val = os.environ.get(var)
         # Mask secrets
         if 'KEY' in var or 'SECRET' in var:
             val = val[:4] + '...' if val else None
         print(f"  {var}={val}")
-
-    if run_mode in MODE_REQUIRED_ENV:
-        for var in MODE_REQUIRED_ENV[run_mode]:
-            print(f"  {var}={os.environ.get(var)}")
 
 
 def get_fargate_task_arn():
@@ -623,6 +619,86 @@ def run_on_stream(dao, job: objs.PlusScriptJob, hostname: str,
     return job
 
 
+def register_actions():
+    """Crawl and register all worker actions to DynamoDB."""
+    from chalicelib.acrawler import AvailableActionCrawler
+    from feaas.dao.docstore.dynamo import DynamoDocstore
+    from google.protobuf.json_format import MessageToDict
+
+    print("\nRegistering plus-worker actions...")
+
+    # Create docstore directly (don't need full DAO)
+    docstore = DynamoDocstore(
+        os.environ.get('DYNAMO_TABLE'),
+        os.environ.get('ACCESS_KEY'),
+        os.environ.get('SECRET_KEY')
+    )
+
+    # Crawl actions
+    print("Crawling for actions in: src/actions")
+
+    crawler = AvailableActionCrawler(
+        sys_name='plus-worker',
+        dao=None,
+        module_prefix='src/actions',
+        owner='sys.action',
+        extra_sys_paths=['.']
+    )
+
+    action_mapping = crawler.get_actions()
+    print(f"Found {len(action_mapping)} actions")
+
+    # Build action metadata
+    actions_data = {}
+    for action_id, action_class in action_mapping.items():
+        try:
+            action_instance = action_class(dao=None)
+
+            params_info = []
+            for param in action_instance.action.params:
+                param_dict = MessageToDict(param, preserving_proto_field_name=True)
+                params_info.append(param_dict)
+
+            outputs_info = []
+            for output in action_instance.action.outputs:
+                output_dict = MessageToDict(output, preserving_proto_field_name=True)
+                outputs_info.append(output_dict)
+
+            actions_data[action_id] = {
+                'action_id': action_id,
+                'runtime': 'fargate',
+                'class_path': f"{action_class.__module__}.{action_class.__name__}",
+                'label': getattr(action_instance.action, 'label', '') or action_class.__name__,
+                'short_desc': getattr(action_instance.action, 'short_desc', ''),
+                'params': params_info,
+                'outputs': outputs_info,
+            }
+            print(f"  {action_id}")
+        except Exception as e:
+            print(f"  {action_id} (error: {e})")
+            actions_data[action_id] = {
+                'action_id': action_id,
+                'runtime': 'fargate',
+                'class_path': f"{action_class.__module__}.{action_class.__name__}",
+                'label': action_class.__name__,
+            }
+
+    # Upload to DynamoDB
+    owner = 'sys.actions.plus-worker'
+    object_id = f'{owner}.plus-worker'
+
+    doc = {
+        'object_id': object_id,
+        'owner': owner,
+        'source': 'plus-worker',
+        'actions': actions_data
+    }
+
+    print(f"\nUploading to: {object_id}")
+    docstore.save_document(object_id, doc)
+    print(f"Registered {len(actions_data)} actions successfully")
+
+
 def run_action():
     """Execute a single action."""
     action_id = os.environ.get('ACTION_ID')
@@ -692,9 +768,11 @@ def main():
         run_job()
     elif run_mode == 'RUN_ACTION':
         run_action()
+    elif run_mode == 'REGISTER_ACTIONS':
+        register_actions()
     else:
         print(f"ERROR: Unknown RUN_MODE: {run_mode}", file=sys.stderr)
-        print(f"  Valid modes: RUN_JOB, RUN_ACTION", file=sys.stderr)
+        print(f"  Valid modes: RUN_JOB, RUN_ACTION, REGISTER_ACTIONS", file=sys.stderr)
         sys.exit(1)
 
     print("=" * 50)
