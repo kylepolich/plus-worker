@@ -40,6 +40,7 @@ BASE_REQUIRED_ENV = [
 ]
 
 # Additional required vars per mode
+# Note: COLLECTION_OWNER and STREAM_ID come from job_doc first, env var as fallback
 MODE_REQUIRED_ENV = {
     'RUN_ACTION': ['JOB_ID', 'USERNAME', 'DYNAMO_STREAMS_TABLE', 'PRIMARY_BUCKET', 'ACTION_ID'],
     'RUN_JOB': ['JOB_ID', 'USERNAME', 'DYNAMO_STREAMS_TABLE', 'PRIMARY_BUCKET'],
@@ -321,13 +322,23 @@ def run_job(force_job_type=None):
         print(f"ERROR: Failed to load job: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Extract extra fields from raw doc
+    # Extract extra fields from raw doc (before protobuf parsing drops them)
     # force_job_type overrides what's in the doc (for RUN_COLLECTION/RUN_STREAM modes)
     job_type = force_job_type or job_doc.get('job_type', 'singleton')
-    collection_key = job_doc.get('collection_key')
-    stream_key = job_doc.get('stream_key')
     hostname = job_doc.get('hostname')
     input_data = job_doc.get('input_data', {})
+
+    # Get collection_owner from job_doc first, fall back to env var
+    collection_owner = job_doc.get('collection_owner')
+    if not collection_owner:
+        print(f"  WARNING: collection_owner not found in job document, checking COLLECTION_OWNER env var")
+        collection_owner = os.environ.get('COLLECTION_OWNER')
+
+    # Get stream_id from job_doc first, fall back to env var
+    stream_id = job_doc.get('stream_id')
+    if not stream_id:
+        print(f"  WARNING: stream_id not found in job document, checking STREAM_ID env var")
+        stream_id = os.environ.get('STREAM_ID')
 
     print(f"Job loaded: {job.label}")
     print(f"  owner: {job.owner}")
@@ -335,10 +346,18 @@ def run_job(force_job_type=None):
     print(f"  job_type: {job_type}")
     print(f"  current status: {objs.PlusScriptStatus.Name(job.status)}")
 
-    if collection_key:
-        print(f"  collection_key: {collection_key}")
-    if stream_key:
-        print(f"  stream_key: {stream_key}")
+    if collection_owner:
+        print(f"  collection_owner: {collection_owner}")
+    if stream_id:
+        print(f"  stream_id: {stream_id}")
+
+    # Validate required fields for collection/stream jobs
+    if job_type == 'run_on_collection' and not collection_owner:
+        print(f"ERROR: collection_owner is required for run_on_collection but not found in job doc or COLLECTION_OWNER env var", file=sys.stderr)
+        sys.exit(1)
+    if job_type == 'run_on_stream' and not stream_id:
+        print(f"ERROR: stream_id is required for run_on_stream but not found in job doc or STREAM_ID env var", file=sys.stderr)
+        sys.exit(1)
 
     # Update job to RUNNING
     now = int(time.time())
@@ -358,9 +377,9 @@ def run_job(force_job_type=None):
     # Dispatch based on job_type
     try:
         if job_type == 'run_on_collection':
-            job = run_on_collection(dao, job, hostname, collection_key, input_data)
+            job = run_on_collection(dao, job, hostname, collection_owner, input_data)
         elif job_type == 'run_on_stream':
-            job = run_on_stream(dao, job, hostname, stream_key, input_data)
+            job = run_on_stream(dao, job, hostname, stream_id, input_data)
         else:
             # Singleton job - just run once
             runner = JobRunner(dao, job)
@@ -452,17 +471,15 @@ def search_by_owner(dao, owner: str) -> list:
 
 
 def run_on_collection(dao, job: objs.PlusScriptJob, hostname: str,
-                      collection_key: str, input_data: dict) -> objs.PlusScriptJob:
+                      collection_owner: str, input_data: dict) -> objs.PlusScriptJob:
     """Run a script on each item in a collection."""
-    owner = job.owner  # e.g., 'plus_dataskeptic_com/kyle@dataskeptic.com/collection.arxiv_ratings'
-
     print(f"\n{'='*60}")
-    print(f"RUNNING ON COLLECTION: {collection_key}")
+    print(f"RUNNING ON COLLECTION: {collection_owner}")
     print(f"{'='*60}")
 
-    # Search for all items in the collection (workaround for docstore.search bug)
-    print(f"  Searching for items with owner: {owner}")
-    items = search_by_owner(dao, owner)
+    # Search for all items in the collection
+    print(f"  Searching for items with owner: {collection_owner}")
+    items = search_by_owner(dao, collection_owner)
 
     if not items:
         print(f"  WARNING: No items found in collection")
@@ -539,16 +556,15 @@ def run_on_collection(dao, job: objs.PlusScriptJob, hostname: str,
 
 
 def run_on_stream(dao, job: objs.PlusScriptJob, hostname: str,
-                  stream_key: str, input_data: dict) -> objs.PlusScriptJob:
+                  stream_id: str, input_data: dict) -> objs.PlusScriptJob:
     """Run a script on each item in a stream."""
     streams = dao.get_streams()
 
     print(f"\n{'='*60}")
-    print(f"RUNNING ON STREAM: {stream_key}")
+    print(f"RUNNING ON STREAM: {stream_id}")
     print(f"{'='*60}")
 
     # Stream items are in DYNAMO_STREAMS_TABLE, keyed by stream_id
-    stream_id = f'{hostname}/{job.username}/stream.{stream_key}'
     print(f"  Reading stream: {stream_id}")
     items = streams.read_stream(stream_id, after_timestamp=0, limit=10000)
     print(f"  Found {len(items)} items")
