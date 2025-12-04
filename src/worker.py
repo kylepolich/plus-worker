@@ -92,7 +92,9 @@ class WorkerActionExecutor:
                 print(f"    -> Failed: {receipt.error_message}")
 
             # Notify job runner of action completion (for progress tracking)
-            self.job_runner.on_action_complete()
+            # job_runner may be None for collection/stream runs (they track progress per-item)
+            if self.job_runner is not None:
+                self.job_runner.on_action_complete()
 
             return receipt
 
