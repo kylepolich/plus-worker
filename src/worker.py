@@ -31,11 +31,9 @@ ACTION_SEARCH_PATHS = [
 ]
 
 # Base required for all modes
+# ACCESS_KEY/SECRET_KEY are optional — if absent, boto3 uses the ECS task role
 BASE_REQUIRED_ENV = [
     'RUN_MODE',
-    'REGION',
-    'ACCESS_KEY',
-    'SECRET_KEY',
     'DYNAMO_TABLE',
 ]
 
@@ -376,15 +374,22 @@ def get_fargate_task_arn():
 
 
 def get_dao():
-    """Initialize DataAccessObject from environment variables."""
+    """Initialize DataAccessObject from environment variables.
+
+    ACCESS_KEY/SECRET_KEY are optional. If absent, boto3 falls back to the
+    default credential chain (ECS task role, instance profile, etc.).
+    """
     props = {
-        'ACCESS_KEY': os.environ.get('ACCESS_KEY'),
-        'SECRET_KEY': os.environ.get('SECRET_KEY'),
-        'REGION': os.environ.get('REGION'),
+        'REGION': os.environ.get('REGION', 'us-east-1'),
         'DYNAMO_TABLE': os.environ.get('DYNAMO_TABLE'),
         'DYNAMO_STREAMS_TABLE': os.environ.get('DYNAMO_STREAMS_TABLE'),
         'PRIMARY_BUCKET': os.environ.get('PRIMARY_BUCKET'),
     }
+    access_key = os.environ.get('ACCESS_KEY')
+    secret_key = os.environ.get('SECRET_KEY')
+    if access_key and secret_key:
+        props['ACCESS_KEY'] = access_key
+        props['SECRET_KEY'] = secret_key
     return DataAccessObject(props, running_as_worker=True)
 
 
