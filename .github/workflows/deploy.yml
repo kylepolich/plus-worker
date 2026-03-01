@@ -107,10 +107,10 @@ jobs:
             $ECR_REGISTRY/$ECR_REPOSITORY:${{ needs.build.outputs.image_tag }}
 
   deploy-production:
-    needs: build
+    needs: [build, deploy-staging]
     runs-on: ubuntu-latest
     environment: production
-    if: github.event.inputs.environment == 'production'
+    if: github.event_name == 'push' || github.event.inputs.environment == 'production'
 
     steps:
       - name: Configure AWS credentials
