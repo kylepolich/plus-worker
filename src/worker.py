@@ -464,12 +464,19 @@ def run_job(force_job_type=None):
     if stream_id:
         print(f"  stream_id: {stream_id}")
 
-    # Validate required fields for collection/stream jobs
+    # Get file_keys from job_doc (ticket #4865)
+    file_keys = job_doc.get('file_keys', [])
+    file_prefix = job_doc.get('prefix', '')
+
+    # Validate required fields for collection/stream/files jobs
     if job_type == 'run_on_collection' and not collection_owner:
         print(f"ERROR: collection_owner is required for run_on_collection but not found in job doc or COLLECTION_OWNER env var", file=sys.stderr)
         sys.exit(1)
     if job_type == 'run_on_stream' and not stream_id:
         print(f"ERROR: stream_id is required for run_on_stream but not found in job doc or STREAM_ID env var", file=sys.stderr)
+        sys.exit(1)
+    if job_type == 'run_on_files' and not file_keys:
+        print(f"ERROR: file_keys is required for run_on_files but not found in job doc", file=sys.stderr)
         sys.exit(1)
 
     # Update job to RUNNING
@@ -493,6 +500,8 @@ def run_job(force_job_type=None):
             job = run_on_collection(dao, job, hostname, collection_owner, input_data)
         elif job_type == 'run_on_stream':
             job = run_on_stream(dao, job, hostname, stream_id, input_data)
+        elif job_type == 'run_on_files':
+            job = run_on_files(dao, job, hostname, file_keys, file_prefix, input_data)
         else:
             # Singleton job - just run once
             runner = JobRunner(dao, job)
@@ -846,6 +855,117 @@ def run_on_stream(dao, job: objs.PlusScriptJob, hostname: str,
 
     print(f"\n{'='*60}")
     print(f"STREAM COMPLETE: {success_count} succeeded, {error_count} failed")
+    print(f"  Receipts written to: {receipt_stream_id}")
+    print(f"{'='*60}")
+
+    return job
+
+
+def run_on_files(dao, job: objs.PlusScriptJob, hostname: str,
+                 file_keys: list, prefix: str, input_data: dict) -> objs.PlusScriptJob:
+    """Ticket #4865: Run a script on each file in the provided file_keys list."""
+    print(f"\n{'='*60}")
+    print(f"RUNNING ON FILES: {len(file_keys)} files")
+    print(f"{'='*60}")
+
+    if not file_keys:
+        print(f"  WARNING: No file keys provided")
+        job.status = objs.PlusScriptStatus.SUCCEEDED
+        job.error_message = "No files to process"
+        return job
+
+    print(f"  Found {len(file_keys)} files to process")
+    print(f"  Prefix: {prefix}")
+
+    # Set up receipt stream
+    job_uuid = extract_job_uuid(job.object_id)
+    receipt_stream_id = f"{hostname}/{job.username}/stream-run-all.{job_uuid}"
+    print(f"  Receipt stream: {receipt_stream_id}")
+
+    streams = dao.get_streams()
+
+    # Create executor for running scripts
+    executor = WorkerActionExecutor(dao, None)
+    psee = PlusScriptExecutionEngine(dao, executor)
+
+    success_count = 0
+    error_count = 0
+
+    for i, file_key in enumerate(file_keys):
+        filename = file_key.split('/')[-1] if '/' in file_key else file_key
+
+        print(f"\n  [{i+1}/{len(file_keys)}] Processing: {file_key}")
+        print(f"  {'='*50}")
+
+        # Build script input: auto-filled params + user constants
+        script_input = dict(input_data) if input_data else {}
+        script_input['key'] = file_key
+        script_input['src_key'] = file_key
+        script_input['filename'] = filename
+        script_input['prefix'] = prefix
+
+        item_receipt = None
+
+        try:
+            # Run the script for this file
+            item_job = psee.start_script(hostname, job.username, job.script, script_input)
+            item_job = psee.run_job(item_job)
+            while item_job.status == objs.PlusScriptStatus.RUNNING:
+                item_job = psee.run_job(item_job)
+
+            if item_job.status == objs.PlusScriptStatus.FAILED:
+                print(f"    -> FAILED: {item_job.error_message}")
+                error_count += 1
+                item_receipt = objs.Receipt(
+                    success=False,
+                    error_message=item_job.error_message
+                )
+            else:
+                print(f"    -> SUCCESS")
+                success_count += 1
+                action_outputs = {}
+                if item_job.data:
+                    action_outputs = dict(item_job.data)
+                item_receipt = objs.Receipt(
+                    success=True,
+                    outputs=action_outputs
+                )
+
+        except Exception as e:
+            print(f"    -> ERROR: {str(e)}")
+            error_count += 1
+            item_receipt = objs.Receipt(
+                success=False,
+                error_message=str(e)
+            )
+
+        # Write receipt to stream
+        if item_receipt:
+            write_receipt_to_stream(streams, receipt_stream_id, item_receipt, file_key)
+
+        # Update progress
+        job.percent = int(((i + 1) / len(file_keys)) * 100)
+        job.success_count = success_count
+        job.error_count = error_count
+        job.updated_at = int(time.time())
+        save_job(dao, job)
+
+    # Final status
+    job.percent = 100
+    job.success_count = success_count
+    job.error_count = error_count
+
+    if error_count == 0:
+        job.status = objs.PlusScriptStatus.SUCCEEDED
+    elif success_count == 0:
+        job.status = objs.PlusScriptStatus.FAILED
+        job.error_message = f"All {error_count} files failed"
+    else:
+        job.status = objs.PlusScriptStatus.SUCCEEDED  # Partial success
+        job.error_message = f"{error_count} of {len(file_keys)} files failed"
+
+    print(f"\n{'='*60}")
+    print(f"FILES COMPLETE: {success_count} succeeded, {error_count} failed")
     print(f"  Receipts written to: {receipt_stream_id}")
     print(f"{'='*60}")
 
