@@ -1209,7 +1209,27 @@ def run_plusscript():
     script_username = parts[1]
 
     from feaas.util.common import clean_script_dict_for_protobuf, DecimalEncoder
+    import copy
+
+    def _clean_node_buffer_byvals(obj):
+        # Strip Node.js Buffer-encoded byvals ({"type":"Buffer","data":[...]}) that plus-core's
+        # cleaner doesn't handle. Plus-engine has the same helper at chalicelib/aws/psee.py.
+        if isinstance(obj, dict):
+            if obj.get('type') == 'Buffer' and 'data' in obj:
+                return None
+            cleaned = {}
+            for k, v in obj.items():
+                cv = _clean_node_buffer_byvals(v)
+                if k == 'byval' and cv is None:
+                    continue
+                cleaned[k] = cv
+            return cleaned
+        if isinstance(obj, list):
+            return [_clean_node_buffer_byvals(x) for x in obj]
+        return obj
+
     script_dict = clean_script_dict_for_protobuf(script_doc)
+    script_dict = _clean_node_buffer_byvals(copy.deepcopy(script_dict))
     plus_script = Parse(json.dumps(script_dict, cls=DecimalEncoder), objs.PlusScript(), ignore_unknown_fields=True)
 
     executor = WorkerActionExecutor(dao, None)
