@@ -70,7 +70,7 @@ class WorkerActionExecutor:
         self.success_count = 0
         self.error_count = 0
 
-    def begin_action_execution(self, action_id, username, data) -> objs.Receipt:
+    def begin_action_execution(self, action_id, username, data, hostname=None) -> objs.Receipt:
         """Execute an action and return the receipt."""
         print(f"  Executing action: {action_id}")
 
@@ -79,7 +79,13 @@ class WorkerActionExecutor:
             ActionClass = build_action_class(action_id, search_paths=ACTION_SEARCH_PATHS)
             action = ActionClass(self.dao)
 
-            # Execute the action
+            import inspect as _inspect
+            accepted = set(_inspect.signature(action.execute_action).parameters.keys())
+            if hostname and 'hostname' in accepted and 'hostname' not in data:
+                data['hostname'] = hostname
+            if 'username' in accepted and 'username' not in data:
+                data['username'] = username
+
             receipt = action.execute_action(**data)
 
             # Track counts
