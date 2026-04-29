@@ -41,6 +41,7 @@ BASE_REQUIRED_ENV = [
 # Note: COLLECTION_OWNER and STREAM_ID come from job_doc first, env var as fallback
 MODE_REQUIRED_ENV = {
     'RUN_ACTION': ['JOB_ID', 'USERNAME', 'DYNAMO_STREAMS_TABLE', 'PRIMARY_BUCKET', 'ACTION_ID'],
+    'RUN_PLUSSCRIPT': ['JOB_ID', 'USERNAME', 'DYNAMO_STREAMS_TABLE', 'PRIMARY_BUCKET', 'ACTION_ID'],
     'RUN_JOB': ['JOB_ID', 'USERNAME', 'DYNAMO_STREAMS_TABLE', 'PRIMARY_BUCKET'],
     'RUN_COLLECTION': ['JOB_ID', 'USERNAME', 'DYNAMO_STREAMS_TABLE', 'PRIMARY_BUCKET'],
     'RUN_STREAM': ['JOB_ID', 'USERNAME', 'DYNAMO_STREAMS_TABLE', 'PRIMARY_BUCKET'],
@@ -1173,6 +1174,51 @@ def run_action():
         sys.exit(1)
 
 
+def run_plusscript():
+    """Execute a PlusScript on Fargate."""
+    script_object_id = os.environ.get('ACTION_ID')  # ACTION_ID carries the script object ID
+    username = os.environ.get('USERNAME', 'system')
+    action_input_json = os.environ.get('ACTION_INPUT_JSON', '{}')
+
+    print(f"\nExecuting PlusScript: {script_object_id}")
+    print(f"  username: {username}")
+
+    try:
+        inputs = json.loads(action_input_json)
+    except json.JSONDecodeError as e:
+        print(f"ERROR: Invalid ACTION_INPUT_JSON: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    dao = get_dao()
+    docstore = dao.get_docstore()
+
+    # Load the PlusScript document
+    script_doc = docstore.get_document(script_object_id)
+    if not script_doc:
+        print(f"ERROR: PlusScript not found: {script_object_id}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"  nodes: {len(script_doc.get('nodes', []))}")
+
+    # Execute using PSEE
+    psee = PlusScriptExecutionEngine(dao, ACTION_SEARCH_PATHS)
+    try:
+        result = psee.run(script_doc, inputs)
+        receipt = result.get('receipt', {})
+        success = receipt.get('success', False) if isinstance(receipt, dict) else getattr(receipt, 'success', False)
+
+        if success:
+            print(f"\nPlusScript completed successfully")
+        else:
+            error = receipt.get('error_message', 'unknown') if isinstance(receipt, dict) else getattr(receipt, 'error_message', 'unknown')
+            print(f"\nPlusScript failed: {error}", file=sys.stderr)
+            sys.exit(1)
+    except Exception as e:
+        print(f"ERROR: PlusScript execution failed: {e}", file=sys.stderr)
+        traceback.print_exc()
+        sys.exit(1)
+
+
 def main():
     print("=" * 50)
     print("plus-worker starting")
@@ -1191,11 +1237,13 @@ def main():
         run_job(force_job_type='run_on_stream')
     elif run_mode == 'RUN_ACTION':
         run_action()
+    elif run_mode == 'RUN_PLUSSCRIPT':
+        run_plusscript()
     elif run_mode == 'REGISTER_ACTIONS':
         register_actions()
     else:
         print(f"ERROR: Unknown RUN_MODE: {run_mode}", file=sys.stderr)
-        print(f"  Valid modes: RUN_JOB, RUN_COLLECTION, RUN_STREAM, RUN_ACTION, REGISTER_ACTIONS", file=sys.stderr)
+        print(f"  Valid modes: RUN_JOB, RUN_COLLECTION, RUN_STREAM, RUN_ACTION, RUN_PLUSSCRIPT, REGISTER_ACTIONS", file=sys.stderr)
         sys.exit(1)
 
     print("=" * 50)
