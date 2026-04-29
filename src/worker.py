@@ -1200,18 +1200,31 @@ def run_plusscript():
 
     print(f"  nodes: {len(script_doc.get('nodes', []))}")
 
-    # Execute using PSEE
-    psee = PlusScriptExecutionEngine(dao, ACTION_SEARCH_PATHS)
-    try:
-        result = psee.run(script_doc, inputs)
-        receipt = result.get('receipt', {})
-        success = receipt.get('success', False) if isinstance(receipt, dict) else getattr(receipt, 'success', False)
+    # Parse hostname/username from script_object_id (format: hostname/username/...)
+    parts = script_object_id.split('/')
+    if len(parts) < 2:
+        print(f"ERROR: Invalid script_object_id format: {script_object_id}", file=sys.stderr)
+        sys.exit(1)
+    hostname = parts[0]
+    script_username = parts[1]
 
-        if success:
+    from feaas.util.common import clean_script_dict_for_protobuf, DecimalEncoder
+    script_dict = clean_script_dict_for_protobuf(script_doc)
+    plus_script = Parse(json.dumps(script_dict, cls=DecimalEncoder), objs.PlusScript(), ignore_unknown_fields=True)
+
+    executor = WorkerActionExecutor(dao, None)
+    psee = PlusScriptExecutionEngine(dao, executor)
+
+    try:
+        job = psee.start_script(hostname, script_username, plus_script, inputs)
+        job = psee.run_job(job)
+        while job.status == objs.PlusScriptStatus.RUNNING:
+            job = psee.run_job(job)
+
+        if job.status == objs.PlusScriptStatus.SUCCEEDED:
             print(f"\nPlusScript completed successfully")
         else:
-            error = receipt.get('error_message', 'unknown') if isinstance(receipt, dict) else getattr(receipt, 'error_message', 'unknown')
-            print(f"\nPlusScript failed: {error}", file=sys.stderr)
+            print(f"\nPlusScript failed: {job.error_message}", file=sys.stderr)
             sys.exit(1)
     except Exception as e:
         print(f"ERROR: PlusScript execution failed: {e}", file=sys.stderr)
