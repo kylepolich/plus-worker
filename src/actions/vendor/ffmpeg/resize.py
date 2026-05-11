@@ -113,3 +113,67 @@ class Resize(FFMPEGAction):
             return objs.Receipt(success=False, error_message=str(e))
         finally:
             self.cleanup(local_input, local_output)
+
+
+class ResizeImage(FFMPEGAction):
+    """Proportionally scale an image and (optionally) change its format.
+
+    Matches the existing `sys.actions...ResizeImage` catalog entry:
+      inputs:  src_key (KEY), scalar (FLOAT), out_format (png|gif|jpg|jpeg)
+      outputs: dest_key (KEY)
+    """
+
+    def __init__(self, dao):
+        params = [
+            objs.Parameter(var_name='src_key', label='Image File', ptype=objs.ParameterType.KEY),
+            objs.Parameter(var_name='scalar', label='Scaling Amount', ptype=objs.ParameterType.FLOAT),
+            objs.Parameter(
+                var_name='out_format', label='Output Format',
+                ptype=objs.ParameterType.FIXED_LIST_SINGLE_SELECT,
+                svals=[
+                    objs.LabelledParam(label="png", value="png"),
+                    objs.LabelledParam(label="gif", value="gif"),
+                    objs.LabelledParam(label="jpg", value="jpg"),
+                    objs.LabelledParam(label="jpeg", value="jpeg"),
+                ],
+            ),
+        ]
+        outputs = [
+            objs.Parameter(var_name='dest_key', label='Output File', ptype=objs.ParameterType.KEY),
+        ]
+        super().__init__(dao, params, outputs)
+
+    def execute_action(self, src_key, scalar, out_format) -> objs.Receipt:
+        try:
+            scalar = float(scalar)
+        except (TypeError, ValueError):
+            return objs.Receipt(success=False, error_message=f"scalar must be numeric, got {scalar!r}")
+        if scalar <= 0:
+            return objs.Receipt(success=False, error_message=f"scalar must be > 0, got {scalar}")
+
+        of = (out_format or "").lower().lstrip(".")
+        if of not in ("png", "gif", "jpg", "jpeg"):
+            return objs.Receipt(success=False, error_message=f"out_format must be png/gif/jpg/jpeg, got {out_format!r}")
+
+        local_input = None
+        local_output = None
+        try:
+            local_input = self.download_file(src_key)
+            fd, local_output = tempfile.mkstemp(suffix=f".{of}")
+            os.close(fd)
+
+            vf = f"scale=trunc(iw*{scalar}/2)*2:trunc(ih*{scalar}/2)*2"
+            proc = self.run_ffmpeg(["-i", local_input, "-vf", vf, "-frames:v", "1", local_output], check=False)
+            if proc.returncode != 0:
+                return objs.Receipt(success=False, error_message=f"ffmpeg failed: {(proc.stderr or '')[-1000:]}")
+
+            dest_key = self.get_output_key(src_key, f"r{scalar}", f".{of}")
+            self.upload_file(local_output, dest_key)
+            return objs.Receipt(
+                success=True, primary_output='dest_key',
+                outputs={'dest_key': objs.AnyType(ptype=objs.ParameterType.KEY, sval=dest_key)},
+            )
+        except Exception as e:
+            return objs.Receipt(success=False, error_message=str(e))
+        finally:
+            self.cleanup(local_input, local_output)

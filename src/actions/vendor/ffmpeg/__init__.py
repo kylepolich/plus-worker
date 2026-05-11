@@ -3,7 +3,7 @@ from src.actions.vendor.ffmpeg.convert import Convert
 from src.actions.vendor.ffmpeg.extract_audio import ExtractAudio
 from src.actions.vendor.ffmpeg.trim import Trim
 from src.actions.vendor.ffmpeg.concat import Concat
-from src.actions.vendor.ffmpeg.resize import Resize
+from src.actions.vendor.ffmpeg.resize import Resize, ResizeImage
 from src.actions.vendor.ffmpeg.compress import Compress
 from src.actions.vendor.ffmpeg.to_gif import ToGif
 from src.actions.vendor.ffmpeg.overlay import Overlay
@@ -17,6 +17,7 @@ __all__ = [
     'Trim',
     'Concat',
     'Resize',
+    'ResizeImage',
     'Compress',
     'ToGif',
     'Overlay',
