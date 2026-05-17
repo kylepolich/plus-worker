@@ -13,6 +13,13 @@ on:
         options:
           - staging
           - production
+  # Fired by plus-engine's publish workflow after a new wheel lands in
+  # CodeArtifact. Rebuilds plus-worker so its Docker image bundles the
+  # latest plus-engine actions (per pyproject.toml's `plus-engine>=...`
+  # constraint, pip pulls the newest version at build time).
+  # Payload fields: plus_engine_version, source_ref, source_sha.
+  repository_dispatch:
+    types: [plus-engine-published]
 
 env:
   AWS_REGION: us-east-1
@@ -27,6 +34,14 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Log dispatch trigger source
+        if: github.event_name == 'repository_dispatch'
+        run: |
+          echo "Triggered by plus-engine publish."
+          echo "  plus-engine version: ${{ github.event.client_payload.plus_engine_version }}"
+          echo "  source ref:          ${{ github.event.client_payload.source_ref }}"
+          echo "  source sha:          ${{ github.event.client_payload.source_sha }}"
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -80,7 +95,10 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     environment: staging
-    if: github.event_name == 'push' || github.event.inputs.environment == 'staging'
+    if: |
+      github.event_name == 'push' ||
+      github.event.inputs.environment == 'staging' ||
+      (github.event_name == 'repository_dispatch' && github.event.client_payload.source_ref == 'staging')
 
     steps:
       - name: Configure AWS credentials
@@ -110,7 +128,18 @@ jobs:
     needs: [build, deploy-staging]
     runs-on: ubuntu-latest
     environment: production
-    if: github.event_name == 'push' || github.event.inputs.environment == 'production'
+    # Allow staging to be skipped (the repository_dispatch from plus-engine
+    # main publishes only triggers production registration) — but block if
+    # staging actually FAILED on a push-to-main run.
+    if: |
+      !cancelled() &&
+      needs.build.result == 'success' &&
+      (needs.deploy-staging.result == 'success' || needs.deploy-staging.result == 'skipped') &&
+      (
+        github.event_name == 'push' ||
+        github.event.inputs.environment == 'production' ||
+        (github.event_name == 'repository_dispatch' && github.event.client_payload.source_ref == 'main')
+      )
 
     steps:
       - name: Configure AWS credentials
