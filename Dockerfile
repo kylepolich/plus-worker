@@ -3,6 +3,10 @@ FROM python:3.12-slim
 # Install system dependencies including Playwright/Chromium requirements
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
+    # HEIC/HEIF decoding for image-metadata extraction (pillow-heif).
+    # Modern pillow-heif wheels bundle libheif, but install the system lib as a
+    # safety net for the slim base image.
+    libheif1 \
     # Playwright/Chromium dependencies
     libnss3 \
     libatk1.0-0 \
