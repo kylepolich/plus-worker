@@ -692,10 +692,10 @@ def run_on_collection(dao, job: objs.PlusScriptJob, hostname: str,
                 success_count += 1
 
                 # Get outputs from the completed job for update mappings
-                # The outputs are stored in item_job.data after execution
+                # The outputs are stored in item_job.output after execution
                 action_outputs = {}
-                if item_job.data:
-                    action_outputs = dict(item_job.data)
+                if item_job.output:
+                    action_outputs = dict(item_job.output)
 
                 # Apply Update node mappings to update the original record
                 # TODO: Consider batching updates instead of one-by-one for better performance
@@ -831,8 +831,8 @@ def run_on_stream(dao, job: objs.PlusScriptJob, hostname: str,
 
                 # Get outputs from the completed job
                 action_outputs = {}
-                if item_job.data:
-                    action_outputs = dict(item_job.data)
+                if item_job.output:
+                    action_outputs = dict(item_job.output)
 
                 # Note: Stream items typically don't get updated like collection items
                 # but we support it if there's an Update node with mappings
@@ -947,8 +947,8 @@ def run_on_files(dao, job: objs.PlusScriptJob, hostname: str,
                 print(f"    -> SUCCESS")
                 success_count += 1
                 action_outputs = {}
-                if item_job.data:
-                    action_outputs = dict(item_job.data)
+                if item_job.output:
+                    action_outputs = dict(item_job.output)
                 item_receipt = objs.Receipt(
                     success=True,
                     outputs=action_outputs
