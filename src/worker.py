@@ -319,19 +319,30 @@ def write_receipt_to_stream(streams, stream_id: str, receipt: objs.Receipt,
         receipt: The Receipt protobuf from action execution
         item_object_id: The object_id of the item that was processed
     """
+    # Stream items are keyed by (stream_id, timestamp); save_stream_item puts the
+    # contents dict directly, so it must carry both key attributes. Timestamps are
+    # milliseconds, matching how the engine's stream actions write (create_item.py).
+    ts = int(time.time() * 1000)
     receipt_data = {
+        'stream_id': stream_id,
         'object_id': item_object_id,
         'success': receipt.success,
         'error_message': receipt.error_message if receipt.error_message else None,
-        'timestamp': int(time.time()),
+        'timestamp': ts,
     }
 
-    # Include outputs if present
+    # Include outputs if present, serialized to JSON-safe primitives. receipt.outputs
+    # is a proto map of AnyType, which isn't directly DynamoDB-serializable.
     if receipt.outputs:
-        receipt_data['outputs'] = dict(receipt.outputs)
+        receipt_data['outputs'] = {k: MessageToDict(v) for k, v in receipt.outputs.items()}
 
-    streams.write_to_stream(stream_id, receipt_data)
-    print(f"    Receipt written to stream: {stream_id}")
+    # A progress-stream write must never abort the batch: if it fails, log and
+    # continue so the remaining files are still processed.
+    try:
+        streams.save_stream_item(stream_id, ts, receipt_data)
+        print(f"    Receipt written to stream: {stream_id}")
+    except Exception as e:
+        print(f"    WARNING: failed to write receipt to stream {stream_id}: {e}", file=sys.stderr)
 
 
 def check_env():
