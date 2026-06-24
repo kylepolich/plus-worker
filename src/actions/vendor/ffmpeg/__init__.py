@@ -9,6 +9,11 @@ from src.actions.vendor.ffmpeg.to_gif import ToGif
 from src.actions.vendor.ffmpeg.overlay import Overlay
 from src.actions.vendor.ffmpeg.normalize_audio import NormalizeAudio
 from src.actions.vendor.ffmpeg.mix_audio import MixAudio
+from src.actions.vendor.ffmpeg.adjust_volume import AdjustVolume
+from src.actions.vendor.ffmpeg.add_intro_outro import AddIntroOutro
+from src.actions.vendor.ffmpeg.trim_silence import TrimSilence
+from src.actions.vendor.ffmpeg.thumbnail import Thumbnail
+from src.actions.vendor.ffmpeg.waveform import Waveform
 
 __all__ = [
     'Probe',
@@ -23,4 +28,9 @@ __all__ = [
     'Overlay',
     'NormalizeAudio',
     'MixAudio',
+    'AdjustVolume',
+    'AddIntroOutro',
+    'TrimSilence',
+    'Thumbnail',
+    'Waveform',
 ]
