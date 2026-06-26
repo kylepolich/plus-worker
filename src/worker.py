@@ -996,23 +996,43 @@ def run_on_files(dao, job: objs.PlusScriptJob, hostname: str,
 
 
 def register_actions():
-    """Crawl and register all worker actions to DynamoDB."""
+    """Crawl and register all worker actions.
+
+    Mirrors plus-engine's upload_actions.py shape so plus-worker is a first-class
+    peer service in the catalog universe:
+      - actions.json → s3://{PRIMARY_BUCKET}/sys/actions/plus-worker/actions.json
+      - per-hostname frontend doc → sys.{hostname}.plusworker.plus-worker
+        carries {actions_s3_key, actions_count, last_updated_at}
+      - registry doc → sys.actions.plus-worker.plus-worker (kept inline for
+        consumers that still read it directly; otherwise they should switch to
+        the S3 pointer)
+    """
+    import json as _json
+    import time
+
+    import boto3
     from plus_engine.acrawler import AvailableActionCrawler
     from feaas.dao.docstore.dynamo import DynamoDocstore
     from google.protobuf.json_format import MessageToDict
 
     print("\nRegistering plus-worker actions...")
 
-    # Create docstore directly (don't need full DAO)
     docstore = DynamoDocstore(
         os.environ.get('DYNAMO_TABLE'),
         os.environ.get('ACCESS_KEY'),
         os.environ.get('SECRET_KEY')
     )
+    bucket_name = os.environ.get('PRIMARY_BUCKET')
+    region = os.environ.get('REGION', 'us-east-1')
+    hostname = os.environ.get('HOSTNAME', 'plus_dataskeptic_com')
+    s3_client = boto3.client(
+        's3',
+        region_name=region,
+        aws_access_key_id=os.environ.get('ACCESS_KEY'),
+        aws_secret_access_key=os.environ.get('SECRET_KEY'),
+    )
 
-    # Crawl actions
     print("Crawling for actions in: src/actions")
-
     crawler = AvailableActionCrawler(
         sys_name='plus-worker',
         dao=None,
@@ -1020,26 +1040,17 @@ def register_actions():
         owner='sys.action',
         extra_sys_paths=['.']
     )
-
     action_mapping = crawler.get_actions()
     print(f"Found {len(action_mapping)} actions")
 
-    # Build action metadata
     actions_data = {}
     for action_id, action_class in action_mapping.items():
         try:
             action_instance = action_class(dao=None)
-
-            params_info = []
-            for param in action_instance.action.params:
-                param_dict = MessageToDict(param, preserving_proto_field_name=True)
-                params_info.append(param_dict)
-
-            outputs_info = []
-            for output in action_instance.action.outputs:
-                output_dict = MessageToDict(output, preserving_proto_field_name=True)
-                outputs_info.append(output_dict)
-
+            params_info = [MessageToDict(p, preserving_proto_field_name=True)
+                           for p in action_instance.action.params]
+            outputs_info = [MessageToDict(o, preserving_proto_field_name=True)
+                            for o in action_instance.action.outputs]
             actions_data[action_id] = {
                 'action_id': action_id,
                 'runtime': 'fargate',
@@ -1048,6 +1059,7 @@ def register_actions():
                 'short_desc': getattr(action_instance.action, 'short_desc', ''),
                 'params': params_info,
                 'outputs': outputs_info,
+                'sys_name': 'plus-worker',
             }
             print(f"  {action_id}")
         except Exception as e:
@@ -1057,22 +1069,65 @@ def register_actions():
                 'runtime': 'fargate',
                 'class_path': f"{action_class.__module__}.{action_class.__name__}",
                 'label': action_class.__name__,
+                'sys_name': 'plus-worker',
             }
 
-    # Upload to DynamoDB
+    actions_json = _json.dumps(actions_data)
+    actions_kb = len(actions_json.encode('utf-8')) / 1024
+    s3_key = None
+    if bucket_name:
+        s3_key = 'sys/actions/plus-worker/actions.json'
+        print(f"\nUploading actions to S3: s3://{bucket_name}/{s3_key} ({actions_kb:.1f} KB)")
+        try:
+            s3_client.put_object(Bucket=bucket_name, Key=s3_key, Body=actions_json,
+                                 ContentType='application/json')
+            print('  ✓ S3 upload successful')
+        except Exception as e:
+            print(f'  ✗ S3 upload failed: {e}')
+            s3_key = None
+
+        frontend_s3_key = f'sys/{hostname}/plusworker/plus-worker/actions.json'
+        print(f"Uploading frontend catalog to S3: s3://{bucket_name}/{frontend_s3_key}")
+        try:
+            s3_client.put_object(Bucket=bucket_name, Key=frontend_s3_key, Body=actions_json,
+                                 ContentType='application/json')
+            print('  ✓ Frontend S3 upload successful')
+            frontend_object_id = f'sys.{hostname}.plusworker.plus-worker'
+            docstore.save_document(frontend_object_id, {
+                'object_id': frontend_object_id,
+                'owner': f'sys.{hostname}.plusworker',
+                'source': 'plus-worker',
+                'actions_s3_key': frontend_s3_key,
+                'actions_count': len(actions_data),
+                'last_updated_at': int(time.time() * 1000),
+            })
+            print(f'  ✓ Frontend metadata doc updated ({len(actions_data)} actions)')
+        except Exception as e:
+            print(f'  ✗ Frontend upload failed: {e}')
+    else:
+        print('Warning: PRIMARY_BUCKET not set, skipping S3 upload')
+
     owner = 'sys.actions.plus-worker'
     object_id = f'{owner}.plus-worker'
-
-    doc = {
-        'object_id': object_id,
-        'owner': owner,
-        'source': 'plus-worker',
-        'actions': actions_data
-    }
-
-    print(f"\nUploading to: {object_id}")
+    if s3_key:
+        doc = {
+            'object_id': object_id,
+            'owner': owner,
+            'source': 'plus-worker',
+            'actions_s3_key': s3_key,
+            'actions_count': len(actions_data),
+            'last_updated_at': int(time.time() * 1000),
+        }
+    else:
+        doc = {
+            'object_id': object_id,
+            'owner': owner,
+            'source': 'plus-worker',
+            'actions': actions_data,
+        }
+    print(f"\nUploading registry to: {object_id}")
     docstore.save_document(object_id, doc)
-    print(f"Registered {len(actions_data)} actions successfully")
+    print(f"Registered {len(actions_data)} actions")
 
 
 def run_action():

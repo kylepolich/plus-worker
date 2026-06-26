@@ -122,6 +122,8 @@ jobs:
             -e ACCESS_KEY=${{ secrets.AWS_ACCESS_KEY_ID }} \
             -e SECRET_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }} \
             -e DYNAMO_TABLE=${{ vars.DYNAMO_TABLE }} \
+            -e PRIMARY_BUCKET=${{ vars.PRIMARY_BUCKET }} \
+            -e HOSTNAME=${{ vars.CATALOG_HOSTNAME }} \
             $ECR_REGISTRY/$ECR_REPOSITORY:${{ needs.build.outputs.image_tag }}
 
   deploy-production:
@@ -163,4 +165,6 @@ jobs:
             -e ACCESS_KEY=${{ secrets.AWS_ACCESS_KEY_ID }} \
             -e SECRET_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }} \
             -e DYNAMO_TABLE=${{ vars.DYNAMO_TABLE }} \
+            -e PRIMARY_BUCKET=${{ vars.PRIMARY_BUCKET }} \
+            -e HOSTNAME=${{ vars.CATALOG_HOSTNAME }} \
             $ECR_REGISTRY/$ECR_REPOSITORY:${{ needs.build.outputs.image_tag }}
