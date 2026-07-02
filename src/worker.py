@@ -1192,7 +1192,23 @@ def run_action():
         print(f"ERROR: Failed to instantiate action: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Execute action
+    # Execute action — filter inputs against the action's signature so we don't
+    # pass kwargs the action doesn't declare (we always inject job_id above,
+    # but most actions don't accept it). Mirrors what plus-engine's
+    # actions_blueprint already does on the lambda execution path. Without this,
+    # plain actions like SyncKalshi throw "unexpected keyword argument 'job_id'".
+    import inspect as _inspect
+    try:
+        sig = _inspect.signature(action.execute_action)
+        accepts_var_kw = any(p.kind == _inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+        if not accepts_var_kw:
+            expected = set(sig.parameters.keys())
+            for k in list(inputs.keys()):
+                if k not in expected:
+                    inputs.pop(k)
+    except Exception:
+        pass  # if introspection fails, fall through and let the call surface the error
+
     print(f"\nExecuting action...")
     receipt = None
     try:
