@@ -22,5 +22,6 @@
             },
             "environment": []
         }
-    ]
+    ],
+    "taskRoleArn": "arn:aws:iam::085318171245:role/plus-worker-task-role"
 }
