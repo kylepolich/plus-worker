@@ -1,9 +1,11 @@
 {
     "family": "plus-worker",
     "networkMode": "awsvpc",
-    "requiresCompatibilities": ["FARGATE"],
+    "requiresCompatibilities": [
+        "FARGATE"
+    ],
     "cpu": "256",
-    "memory": "512",
+    "memory": "1024",
     "executionRoleArn": "arn:aws:iam::085318171245:role/ecsTaskExecutionRole",
     "containerDefinitions": [
         {
