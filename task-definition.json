@@ -20,7 +20,12 @@
                     "awslogs-stream-prefix": "worker"
                 }
             },
-            "environment": []
+            "environment": [
+                {
+                    "name": "SSM_SECRETS_PREFIX",
+                    "value": "/plus-engine/prod/"
+                }
+            ]
         }
     ],
     "taskRoleArn": "arn:aws:iam::085318171245:role/plus-worker-task-role"

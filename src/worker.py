@@ -22,6 +22,8 @@ from feaas.dao.dao import DataAccessObject
 from feaas.psee.psee import PlusScriptExecutionEngine
 from feaas.util.common import build_action_class
 from google.protobuf.json_format import Parse, MessageToDict
+# SP05 principal: requires a plus-engine build that packages plus_engine.principal
+from plus_engine.principal import action_context, principal_dict_context, principal_from_env
 
 # Search paths for action resolution (first match wins)
 ACTION_SEARCH_PATHS = [
@@ -81,12 +83,17 @@ class WorkerActionExecutor:
 
             import inspect as _inspect
             accepted = set(_inspect.signature(action.execute_action).parameters.keys())
-            if hostname and 'hostname' in accepted and 'hostname' not in data:
+            # SP05: engine-derived identity OVERRIDES caller-supplied inputs
+            # (mirrors feaas-core ActionExecutor._enrich_inputs). Only fill
+            # from inputs-absent when the engine has no value of its own.
+            if 'hostname' in accepted and hostname:
                 data['hostname'] = hostname
-            if 'username' in accepted and 'username' not in data:
+            if 'username' in accepted and (username or 'username' not in data):
                 data['username'] = username
 
-            receipt = action.execute_action(**data)
+            # SP08: grant `allowed_action_ids` constraints match this id.
+            with action_context(action_id):
+                receipt = action.execute_action(**data)
 
             # Track counts
             if receipt.success:
@@ -1212,7 +1219,9 @@ def run_action():
     print(f"\nExecuting action...")
     receipt = None
     try:
-        receipt = action.execute_action(**inputs)
+        # SP08: grant `allowed_action_ids` constraints match this id.
+        with action_context(action_id):
+            receipt = action.execute_action(**inputs)
     except Exception as e:
         print(f"ERROR: Action execution failed: {e}", file=sys.stderr)
         traceback.print_exc()
@@ -1350,6 +1359,16 @@ def main():
     run_mode = os.environ.get('RUN_MODE')
     print(f"\nRUN_MODE: {run_mode}")
 
+    # SP05: plus-engine puts the acting principal in PLUS_PRINCIPAL_JSON (ECS
+    # task overrides). Set it for the whole task so plus_engine's credential
+    # resolver authorises against the same identity as in the Lambda.
+    principal = principal_from_env()
+    print(f"  principal: {'set' if principal else 'none'}")
+    with principal_dict_context(principal):
+        _dispatch(run_mode)
+
+
+def _dispatch(run_mode):
     if run_mode == 'RUN_JOB':
         run_job()
     elif run_mode == 'RUN_COLLECTION':
