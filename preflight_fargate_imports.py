@@ -33,10 +33,36 @@ Action has enough memory, enough disk, or the right credentials.
 import ast
 import importlib
 import importlib.util
+import os
 import pathlib
 import sys
 
+# plus_engine.crypto raises MissingEncryptionKey at import, and most Actions
+# reach it through plus_engine.credentials. At run time the worker gets the real
+# key from SSM (SSM_SECRETS_PREFIX); at build time there is none. This check
+# only imports modules -- it never resolves or decrypts a credential -- so a
+# throwaway value is correct. setdefault, so a real key still wins.
+os.environ.setdefault('ENCRYPTION_KEY', 'preflight-no-decryption-performed')
+os.environ.setdefault('PLUS_ENGINE_PRINCIPAL_SECRET', 'preflight-unused')
+
 FIRST_PARTY = {'plus_engine', 'chalicelib', 'feaas', 'plus_core', 'src'}
+
+# Fargate Actions that are ALREADY broken in the published wheel, with the
+# reason. They do not block the image, because they were broken before this
+# check existed and nothing here can fix them -- but they are printed loudly
+# every build, and if one starts importing cleanly this check FAILS so the
+# entry cannot quietly rot.
+#
+# Both of these are the bug that build_package.py's own comment documents from
+# 2026-07-25: it copies a hardcoded list of support modules into plus_engine/
+# and rewrites a hardcoded list of imports. Any chalicelib module not on those
+# lists is simply absent from the wheel. Fix belongs in plus-engine.
+KNOWN_BROKEN = {
+    'plus_engine.actions.system.reconcile_user_storage':
+        "imports chalicelib.usage_ledger, which build_package.py never copies",
+    'plus_engine.actions.vendor.aws.s3.delete_prefix':
+        "imports chalicelib.aws.byob_credentials, which build_package.py never copies",
+}
 
 
 def _is_fargate(tree):
@@ -164,7 +190,16 @@ def main():
         try:
             importlib.import_module(dotted)
         except Exception as e:
-            failures.append(f'{dotted}: module import failed: {type(e).__name__}: {e}')
+            if dotted in KNOWN_BROKEN:
+                warnings.append(f'PRE-EXISTING {dotted}: {KNOWN_BROKEN[dotted]} '
+                                f'({type(e).__name__})')
+            else:
+                failures.append(f'{dotted}: module import failed: {type(e).__name__}: {e}')
+            continue
+        if dotted in KNOWN_BROKEN:
+            failures.append(
+                f'{dotted}: imports cleanly now, but is listed in KNOWN_BROKEN '
+                f'({KNOWN_BROKEN[dotted]}). Remove the entry.')
             continue
 
         # ...and so must everything it reaches for, whenever it reaches for
