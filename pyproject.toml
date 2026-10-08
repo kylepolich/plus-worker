@@ -13,7 +13,7 @@ dependencies = [
     "furl>=2.1.0",
     "markdown2>=2.4.0",
     "playwright>=1.50.0",
-    "plus-core>=1.0.64",
+    "plus-core>=1.0.66",
     "plus-engine>=1.0.440",
     # wikidrama.daily_scan scores a day of Wikipedia recentchanges in pandas.
     # Lambda does not carry these; only fargate actions need them.
