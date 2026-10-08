@@ -15,6 +15,13 @@ dependencies = [
     "playwright>=1.50.0",
     "plus-core>=1.0.64",
     "plus-engine>=1.0.440",
+    # wikidrama.daily_scan scores a day of Wikipedia recentchanges in pandas.
+    # Lambda does not carry these; only fargate actions need them.
+    "pandas>=2.0",
+    "numpy>=1.26",
+    # Optional at runtime -- daily_scan degrades to "review skipped" without it,
+    # but the whole point of the digest is the LLM review.
+    "anthropic>=0.40",
     "protobuf>=5.29.0",
     "pyarrow>=14.0.0",
     "PyMuPDF>=1.23.0",

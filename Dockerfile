@@ -41,6 +41,12 @@ RUN --mount=type=secret,id=codeartifact_token \
     pip install --no-cache-dir . && \
     pip config unset global.index-url
 
+# Every fargate Action must be able to import what it needs IN THIS IMAGE.
+# Runs before the slow Playwright layer so a missing dependency fails fast.
+# See the module docstring for the outage this exists to prevent.
+COPY preflight_fargate_imports.py .
+RUN python preflight_fargate_imports.py
+
 # Install Playwright browsers (Chromium only to minimize size)
 RUN playwright install chromium
 
