@@ -28,6 +28,9 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # OIDC token for aws-actions/configure-aws-credentials
+      contents: read
     outputs:
       image_tag: ${{ steps.build.outputs.image_tag }}
 
@@ -46,8 +49,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::085318171245:role/plus-worker-github-deploy
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
@@ -94,6 +96,9 @@ jobs:
   deploy-staging:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # OIDC token for aws-actions/configure-aws-credentials
+      contents: read
     environment: staging
     if: |
       github.event_name == 'push' ||
@@ -104,8 +109,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::085318171245:role/plus-worker-github-deploy
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
@@ -119,8 +123,7 @@ jobs:
           docker run --rm \
             -e RUN_MODE=REGISTER_ACTIONS \
             -e REGION=${{ env.AWS_REGION }} \
-            -e ACCESS_KEY=${{ secrets.AWS_ACCESS_KEY_ID }} \
-            -e SECRET_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }} \
+            -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN \
             -e DYNAMO_TABLE=${{ vars.DYNAMO_TABLE }} \
             -e PRIMARY_BUCKET=${{ vars.PRIMARY_BUCKET }} \
             -e HOSTNAME=${{ vars.CATALOG_HOSTNAME }} \
@@ -129,6 +132,9 @@ jobs:
   deploy-production:
     needs: [build, deploy-staging]
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # OIDC token for aws-actions/configure-aws-credentials
+      contents: read
     environment: production
     # Allow staging to be skipped (the repository_dispatch from plus-engine
     # main publishes only triggers production registration) — but block if
@@ -147,8 +153,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::085318171245:role/plus-worker-github-deploy
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
@@ -162,8 +167,7 @@ jobs:
           docker run --rm \
             -e RUN_MODE=REGISTER_ACTIONS \
             -e REGION=${{ env.AWS_REGION }} \
-            -e ACCESS_KEY=${{ secrets.AWS_ACCESS_KEY_ID }} \
-            -e SECRET_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }} \
+            -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN \
             -e DYNAMO_TABLE=${{ vars.DYNAMO_TABLE }} \
             -e PRIMARY_BUCKET=${{ vars.PRIMARY_BUCKET }} \
             -e HOSTNAME=${{ vars.CATALOG_HOSTNAME }} \
