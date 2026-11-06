@@ -124,6 +124,7 @@ jobs:
             -e RUN_MODE=REGISTER_ACTIONS \
             -e REGION=${{ env.AWS_REGION }} \
             -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN \
+            -e AWS_DEFAULT_REGION=${{ env.AWS_REGION }} \
             -e DYNAMO_TABLE=${{ vars.DYNAMO_TABLE }} \
             -e PRIMARY_BUCKET=${{ vars.PRIMARY_BUCKET }} \
             -e HOSTNAME=${{ vars.CATALOG_HOSTNAME }} \
@@ -168,6 +169,7 @@ jobs:
             -e RUN_MODE=REGISTER_ACTIONS \
             -e REGION=${{ env.AWS_REGION }} \
             -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN \
+            -e AWS_DEFAULT_REGION=${{ env.AWS_REGION }} \
             -e DYNAMO_TABLE=${{ vars.DYNAMO_TABLE }} \
             -e PRIMARY_BUCKET=${{ vars.PRIMARY_BUCKET }} \
             -e HOSTNAME=${{ vars.CATALOG_HOSTNAME }} \
